@@ -184,6 +184,28 @@ out2 = run_session({"TVISION_COLORS": "16"}, actions_classic)
 check("classic: magenta bg escape present", has_sgr(out2, 45))
 check("classic: no RGB purple leaks", not has_sgr(out2, 48, 2, 42, 27, 77))
 
+# --- Session 3: Spec Manager (Alt-P) ---------------------------------------
+setup()  # reset the fixture so test-spec is the only (and focused) row
+
+def actions_manager(send, drain):
+    send(["\x1bp"]); drain(1.2)   # Alt-P -> Spec Manager
+    send(["r"]); drain(0.8)       # Mark reviewed...
+    send(["\r"]); drain(1.5)      # confirm (Yes is the default)
+
+out3 = run_session({}, actions_manager)
+s3 = stripped(out3)
+check("mgr: column headers shown",
+      all(h in s3 for h in ("Title", "Status", "Domain", "Updated", "Plan")))
+check("mgr: spec row shown with title", "Test Spec" in s3)
+check("mgr: gate line shows blocked reason", "needs review" in s3)
+check("mgr: key legend shown", "R review" in s3)
+body3 = open(PROJ + "/specs/test-spec.md").read()
+check("mgr: mark reviewed wrote status", "status: reviewed" in body3)
+check("mgr: review recorded in Decisions",
+      "Reviewed by the user via the Spec Manager." in body3)
+check("mgr: override recorded (was draft)",
+      "Override: status was 'draft'" in body3)
+
 print()
 fails = [n for n, ok in results if not ok]
 print(f"{len(results) - len(fails)}/{len(results)} passed")

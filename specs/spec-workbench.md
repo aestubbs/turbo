@@ -493,6 +493,17 @@ Decided (proposed by this draft; overridable in review):
   (e) The gtest include path is now resolved via `find_path` in CMake, so
   the unit tests build on macOS/Homebrew, not just CI's Linux.
 
+- **D22 (2026-07-19):** M2 implementation notes. The Manager is a custom
+  `TListViewer` table (not the modal `ListWindow` toolkit, which endModal's
+  on Enter), decoupled from the app via callbacks (`onOpen`, `onNewSpec` —
+  the OutputView pattern). FR19's filter is F (cycle status) + `/` (text
+  match over title/domain/status/refName) rather than a live filter input —
+  simpler, fully keyboard-driven; revisit if it feels clunky. Reviewing a
+  spec whose status is not `ready` is allowed (D18: the user is the review
+  authority) but the ledger entry records the override, folding FR10's
+  mark-ready override into the review act. The header row uses the spec
+  purple (`0x9D7CD8`) as its accent. The D20 gitignore warning moved to M7.
+
 Open questions: none at present. Resolved questions live above as dated
 decisions; implementation may surface new ones (FR14).
 
@@ -503,7 +514,7 @@ decisions; implementation may surface new ones (FR14).
       affordance, `cmNewSpec` + default template, frontmatter read/write,
       palette + Lua registration. Tests: background attribute (both colour
       modes), template creation.
-- [ ] **M2 — Spec Manager.** Table window over a specs/ scan (frontmatter,
+- [x] **M2 — Spec Manager.** Table window over a specs/ scan (frontmatter,
       plan progress, `depends` state, open-question count; filewatcher
       refresh), New Spec… dialog, Open action, Mark reviewed… action,
       implementation-gate evaluation with blocked-row display (FR20),
@@ -529,7 +540,9 @@ decisions; implementation may surface new ones (FR14).
       the blocking-discovery regression of FR14); status transitions.
 - [ ] **M7 — Status surfacing + polish.** Doctree/statusline status
       badges (FR15), docs, additional domain pack as proof of
-      configurability (e.g. "SaaS product" with monetisation questions).
+      configurability (e.g. "SaaS product" with monetisation questions);
+      the D20 gitignore check (warn from cmNewSpec/Manager when specs/ is
+      ignored).
 
 # Summary
 

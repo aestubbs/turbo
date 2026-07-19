@@ -1,6 +1,10 @@
 #include <turbo/specmodel.h>
 
+#include <algorithm>
 #include <cctype>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 
 namespace turbo {
 
@@ -260,6 +264,105 @@ std::vector<std::string> specGateBlockers(const SpecInfo &spec,
         blockers.push_back(std::to_string(spec.openQuestions) + " open question" +
                            (spec.openQuestions == 1 ? "" : "s"));
     return blockers;
+}
+
+std::vector<SpecInfo> scanSpecsDir(const std::string &specsDir)
+{
+    std::vector<SpecInfo> specs;
+    std::error_code ec;
+    std::filesystem::recursive_directory_iterator it(specsDir, ec), end;
+    if (ec)
+        return specs;
+    for (; it != end; it.increment(ec))
+    {
+        if (ec)
+            break;
+        std::error_code ec2;
+        if (!it->is_regular_file(ec2))
+            continue;
+        std::string path = it->path().string();
+        if (it->path().extension() != ".md")
+            continue;
+        std::ifstream f(path, std::ios::binary);
+        if (!f)
+            continue;
+        std::ostringstream ss;
+        ss << f.rdbuf();
+        specs.push_back(parseSpec(ss.str(), path));
+    }
+    std::sort(specs.begin(), specs.end(),
+              [] (const SpecInfo &a, const SpecInfo &b) {
+                  if (a.updated != b.updated)
+                  {
+                      if (a.updated.empty()) return false; // undated last
+                      if (b.updated.empty()) return true;
+                      return a.updated > b.updated;        // newest first
+                  }
+                  return a.path < b.path;
+              });
+    return specs;
+}
+
+std::string appendToSpecSection(std::string_view text, std::string_view section,
+                                std::string_view block)
+{
+    std::string heading = "# " + std::string {section};
+    auto lines = splitLines(text);
+    // splitLines yields a final "" element when the text ends in a newline;
+    // drop it so the rebuild below controls the trailing newline itself.
+    if (!lines.empty() && lines.back().empty() && !text.empty() &&
+        text.back() == '\n')
+        lines.pop_back();
+
+    // Find the section's heading, then the end of its content (the last
+    // non-blank line before the next heading or EOF).
+    size_t headingAt = lines.size();
+    for (size_t i = 0; i < lines.size(); ++i)
+        if (trim(lines[i]) == heading)
+        {
+            headingAt = i;
+            break;
+        }
+    std::string out;
+    auto appendLine = [&out] (std::string_view l) {
+        out += l;
+        out += '\n';
+    };
+    if (headingAt == lines.size())
+    {
+        // No such section: create it at the end of the document.
+        for (auto l : lines)
+            appendLine(l);
+        if (!lines.empty())
+            appendLine("");
+        appendLine(heading);
+        appendLine("");
+        appendLine(block);
+        return out;
+    }
+    size_t insertAt = headingAt + 1; // after the last non-blank content line
+    for (size_t i = headingAt + 1; i < lines.size(); ++i)
+    {
+        if (lines[i].rfind("# ", 0) == 0)
+            break;
+        if (!trim(lines[i]).empty())
+            insertAt = i + 1;
+    }
+    for (size_t i = 0; i < lines.size(); ++i)
+    {
+        if (i == insertAt)
+        {
+            appendLine("");
+            appendLine(block);
+        }
+        appendLine(lines[i]);
+    }
+    if (insertAt == lines.size())
+    {
+        appendLine("");
+        appendLine(block);
+    }
+    return out;
 }
 
 std::string kebabCase(std::string_view s)

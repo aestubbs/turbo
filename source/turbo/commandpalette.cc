@@ -50,6 +50,7 @@ const PaletteCommand kCommands[] =
     { "Exit",                          cmQuit,                 "Ctrl-Q",       false },
     // Specs (spec-driven ALM)
     { "New Spec...",                   cmNewSpec,              "",             false },
+    { "Spec Manager",                  cmSpecManager,          "Alt-P",        false },
     // Navigation (new)
     { "Go to Anything...",             cmGotoAnything,         "Ctrl-P",       false },
     // Edit

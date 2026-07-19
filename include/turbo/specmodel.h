@@ -57,6 +57,17 @@ std::string withFrontmatterValue(std::string_view text, std::string_view key,
 std::vector<std::string> specGateBlockers(const SpecInfo &spec,
                                           const std::vector<SpecInfo> &all);
 
+// Read every *.md under 'specsDir' (recursively), parsed, sorted by
+// frontmatter 'updated' (newest first; undated last), then by path. A missing
+// or unreadable directory yields an empty list.
+std::vector<SpecInfo> scanSpecsDir(const std::string &specsDir);
+
+// Return the document with 'block' appended at the end of the "# <section>"
+// section (kept apart by blank lines; before the next heading). If the
+// section is missing it is created at the end of the document.
+std::string appendToSpecSection(std::string_view text, std::string_view section,
+                                std::string_view block);
+
 // "My Great Feature!" -> "my-great-feature" (filename-safe, D7 naming).
 std::string kebabCase(std::string_view s);
 

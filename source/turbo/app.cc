@@ -47,6 +47,7 @@
 #include "gotoanything.h"
 #include "builddialog.h"
 #include "specdialog.h"
+#include "specmanager.h"
 #include <turbo/specmodel.h>
 #include <turbo/fileeditor.h>
 #include <turbo/tpath.h>
@@ -565,6 +566,7 @@ TMenuBar *TurboApp::makeMenuBar(TRect r, int recentCount, int toolCount)
             *new TMenuItem( "Line ~N~umbers", cmToggleLineNums, kbF8, hcNoContext, "F8" ) +
             *new TMenuItem( "Line ~W~rapping", cmToggleWrap, kbF9, hcNoContext, "F9" ) +
             *new TMenuItem( "Auto ~I~ndent", cmToggleIndent, kbNoKey, hcNoContext ) +
+            *new TMenuItem( "Spec ~M~anager", cmSpecManager, kbAltP, hcNoContext, "Alt-P" ) +
             *new TMenuItem( "~H~idden Files", cmToggleHidden, kbNoKey, hcNoContext ) +
             *new TMenuItem( "Chan~g~e History", cmToggleChangeHistory, kbNoKey, hcNoContext ) +
             *new TMenuItem( "Long Line G~u~ide", cmToggleEdge, kbNoKey, hcNoContext ) +
@@ -690,6 +692,7 @@ TStatusLine *TurboApp::initStatusLine( TRect r )
             // Alt-0 opens/focuses the coding-agent window (Alt-1..9 are reserved
             // by tvision for window selection; Alt-0 is free and terminal-safe).
             *new TStatusItem( 0, kbAlt0, cmToggleAgent ) +
+            *new TStatusItem( 0, kbAltP, cmSpecManager ) +
             // Undo-selection on Ctrl+U (only fires with an editor focused, as the
             // command is disabled otherwise; converted before the editor sees the
             // key, like the navigation overlays above). Split-into-lines is NOT
@@ -853,6 +856,7 @@ void TurboApp::handleEvent(TEvent &event)
             case cmLspSettings: editLspSettings(); break;
             case cmDebugSettings: editDebugSettings(); break;
             case cmNewSpec: newSpec(); break;
+            case cmSpecManager: toggleSpecManager(); break;
             case cmThemeSettings: editThemeSettings(); break;
             case cmApplyTheme: applyActiveTheme(); break;
             case cmColorModeAuto: setColorMode("auto"); break;
@@ -2147,6 +2151,18 @@ void TurboApp::onFilesChanged()
         reconcile(p);
     if (gitTouched && git)
         git->requestStatus();
+    // Any change under specs/ re-scans the Spec Manager's table (FR16): an
+    // agent's or editor's write shows up without manual refresh.
+    if (specMgr && !projectRoot.empty())
+    {
+        std::string specsPrefix = projectRoot + "/specs";
+        for (auto &p : changed)
+            if (p.rfind(specsPrefix, 0) == 0)
+            {
+                specMgr->refresh();
+                break;
+            }
+    }
 }
 
 static std::string trimmed(const char *s)
@@ -3603,7 +3619,36 @@ void TurboApp::newSpec()
         }
         f << turbo::specTemplate(title, domain, goal, date);
     }
+    if (specMgr)
+        specMgr->refresh();
     openOrFocus(path);
+}
+
+void TurboApp::toggleSpecManager()
+{
+    if (specMgr)
+    {
+        if (!(specMgr->state & sfVisible))
+            specMgr->show();
+        specMgr->focus();
+        return;
+    }
+    if (projectRoot.empty())
+    {
+        messageBox(mfError | mfOKButton,
+                   "Open a project first: the Spec Manager lists its specs/ "
+                   "directory.");
+        return;
+    }
+    // Centered over the desktop, clamped to it on small screens.
+    TRect d = deskTop->getExtent();
+    int w = min(84, d.b.x - d.a.x - 4), h = min(18, d.b.y - d.a.y - 2);
+    TRect r((d.a.x + d.b.x - w) / 2, (d.a.y + d.b.y - h) / 2,
+            (d.a.x + d.b.x + w) / 2, (d.a.y + d.b.y + h) / 2);
+    specMgr = new SpecManagerWindow(r, projectRoot + "/specs", &specMgr);
+    specMgr->onOpen = [this] (const std::string &p) { openOrFocus(p); };
+    specMgr->onNewSpec = [this] { newSpec(); };
+    deskTop->insert(specMgr);
 }
 
 void TurboApp::toggleAgent()

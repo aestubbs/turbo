@@ -35,6 +35,7 @@ class McpServer;
 struct BranchView;
 struct TerminalView;
 struct TerminalWindow;
+struct SpecManagerWindow;
 
 // A configured tool process, toggled on/off from the Run menu (e.g. `npm run
 // dev`). Independent of Build/Run: it runs long-lived until toggled off, and its
@@ -108,6 +109,10 @@ struct TurboApp : public TApplication, EditorWindowParent
     // The dedicated coding-agent window (a normal, freely-placeable terminal
     // window running the configured agent). Single instance; nulled on close.
     TerminalWindow *agentWin {nullptr};
+
+    // The Spec Manager (specs/spec-workbench.md FR16): the singleton window
+    // listing every spec under <projectRoot>/specs. Nulled on close.
+    SpecManagerWindow *specMgr {nullptr};
 
     // Build/Run: a bordered output pane docked at the bottom of the editor area,
     // and the command runner streaming the current build into it.
@@ -202,6 +207,8 @@ struct TurboApp : public TApplication, EditorWindowParent
     // Create a spec in <projectRoot>/specs/ from the template (FR3 of
     // specs/spec-workbench.md): dialog for title/domain/goal, then open it.
     void newSpec();
+    // Show (or focus) the Spec Manager window. Alt-P / cmSpecManager.
+    void toggleSpecManager();
     void treeCreateFolder(const std::string &dirPath);   // prompt + mkdir
     void treeRenamePath(const std::string &path, bool isDir); // prompt + rename
     void treeStagePath(const std::string &path);         // git add

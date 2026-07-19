@@ -2,6 +2,9 @@
 
 #include <gtest/gtest.h>
 
+#include <filesystem>
+#include <fstream>
+
 using namespace turbo;
 
 namespace {
@@ -161,6 +164,63 @@ TEST(SpecModel, GateResolvesDependsByIdToo)
     dep.id = "the-id";
     std::vector<SpecInfo> all = { dep, makeSpec("me", "reviewed", {"the-id"}) };
     EXPECT_TRUE(specGateBlockers(all[1], all).empty());
+}
+
+TEST(SpecModel, AppendToSectionBeforeNextHeading)
+{
+    std::string doc =
+        "# Decisions\n"
+        "\n"
+        "- **D1:** first.\n"
+        "\n"
+        "# Summary\n"
+        "\n"
+        "End.\n";
+    std::string out = appendToSpecSection(doc, "Decisions", "- **D2:** second.");
+    EXPECT_NE(out.find("- **D1:** first.\n\n- **D2:** second.\n"),
+              std::string::npos);
+    // Section order preserved; Summary untouched and still after D2.
+    EXPECT_LT(out.find("- **D2:** second."), out.find("# Summary"));
+    EXPECT_NE(out.find("End.\n"), std::string::npos);
+}
+
+TEST(SpecModel, AppendToSectionAtEofAndMissingSection)
+{
+    std::string atEof = appendToSpecSection("# Decisions\n\n- **D1:** x.\n",
+                                            "Decisions", "- **D2:** y.");
+    EXPECT_NE(atEof.find("- **D1:** x.\n\n- **D2:** y.\n"), std::string::npos);
+
+    std::string created = appendToSpecSection("# Objective\n\nGoal.\n",
+                                              "Decisions", "- **D1:** z.");
+    EXPECT_NE(created.find("# Decisions\n\n- **D1:** z.\n"), std::string::npos);
+    EXPECT_LT(created.find("Goal."), created.find("# Decisions"));
+}
+
+TEST(SpecModel, ScanSpecsDirReadsAndSorts)
+{
+    namespace fs = std::filesystem;
+    fs::path dir = fs::temp_directory_path() / "turbo-specmodel-scan-test";
+    fs::remove_all(dir);
+    fs::create_directories(dir / "nested");
+    auto write = [&] (const fs::path &p, const std::string &body) {
+        std::ofstream f(p, std::ios::binary);
+        f << body;
+    };
+    write(dir / "older.md",
+          "---\ntitle: Older\nstatus: implemented\nupdated: 2026-07-01\n---\n");
+    write(dir / "newer.md",
+          "---\ntitle: Newer\nstatus: draft\nupdated: 2026-07-19\n---\n");
+    write(dir / "nested" / "undated.md", "# Just a doc\n");
+    write(dir / "notes.txt", "not a spec");
+
+    auto specs = scanSpecsDir(dir.string());
+    ASSERT_EQ(specs.size(), 3u);           // .txt excluded, nested included
+    EXPECT_EQ(specs[0].title, "Newer");    // newest first
+    EXPECT_EQ(specs[1].title, "Older");
+    EXPECT_EQ(specs[2].refName(), "undated"); // undated last
+    fs::remove_all(dir);
+
+    EXPECT_TRUE(scanSpecsDir((dir / "missing").string()).empty());
 }
 
 TEST(SpecModel, KebabCase)
