@@ -13,6 +13,8 @@
 !source/**/
 !test/
 !test/**/
+!specs/
+!specs/**/
 !.github/
 !.github/**/
 
