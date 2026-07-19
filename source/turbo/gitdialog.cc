@@ -18,6 +18,7 @@
 
 #include "gitdialog.h"
 #include "gitmanager.h"
+#include "fieldinput.h"
 
 #include <string>
 #include <vector>
@@ -49,37 +50,6 @@ std::string relPath(const std::string &root, const std::string &abs)
         return abs.substr(root.size() + 1);
     return abs;
 }
-
-// Same fix as builddialog.cc's FieldInputLine: a plain TInputLine in this fork
-// swallows Tab and Enter before the dialog can use them, so route Tab to the
-// focus chain and Enter to the dialog's default (OK) action.
-struct FieldInputLine : public TInputLine
-{
-    FieldInputLine(const TRect &b, int maxLen) noexcept : TInputLine(b, maxLen) {}
-
-    void handleEvent(TEvent &ev) override
-    {
-        if (ev.what == evKeyDown)
-        {
-            ushort key = ev.keyDown.keyCode;
-            if (key == kbTab || key == kbShiftTab)
-            {
-                if (owner)
-                    owner->selectNext(Boolean(key == kbShiftTab));
-                clearEvent(ev);
-                return;
-            }
-            if (key == kbEnter)
-            {
-                if (owner)
-                    message(owner, evCommand, cmOK, nullptr);
-                clearEvent(ev);
-                return;
-            }
-        }
-        TInputLine::handleEvent(ev);
-    }
-};
 
 } // namespace
 

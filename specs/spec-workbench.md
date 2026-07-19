@@ -477,12 +477,28 @@ Decided (proposed by this draft; overridable in review):
   "fresh checkout carries the methodology" guarantee dies silently
   otherwise.
 
+- **D21 (2026-07-19):** M1 implementation notes. (a) `FieldInputLine` was
+  duplicated file-locally in builddialog.cc and gitdialog.cc — which only
+  compiled because the two fell into different unity batches; consolidated
+  into a shared `fieldinput.h` before adding a third dialog could reshuffle
+  the batches and collide them. (b) The spec surface is a per-window branch
+  in `EditorWindow::applyActiveStateTheme()` (the Lua-brown precedent); the
+  runtime re-theme loops in `applyActiveTheme`/`setColorMode` now route
+  through it, fixing a pre-existing bug where Lua-brown (and now purple)
+  snapped back to plain blue on any theme edit until the next focus change.
+  (c) The specs/ scan tags a `NodeKind::Specs` doctree node (folder glyph,
+  purple `0x9D7CD8`). (d) `test/pty/spec_identity_test.py` establishes the
+  PTY runtime-test convention in-repo (real pty + TIOCSWINSZ +
+  COLORTERM=truecolor + discrete keys + non-symlinked project dir).
+  (e) The gtest include path is now resolved via `find_path` in CMake, so
+  the unit tests build on macOS/Homebrew, not just CI's Linux.
+
 Open questions: none at present. Resolved questions live above as dated
 decisions; implementation may surface new ones (FR14).
 
 # Implementation Plan
 
-- [ ] **M1 — specs/ identity.** Path-based editor background (purple full /
+- [x] **M1 — specs/ identity.** Path-based editor background (purple full /
       magenta 16-colour, active/inactive variants per D12), doctree
       affordance, `cmNewSpec` + default template, frontmatter read/write,
       palette + Lua registration. Tests: background attribute (both colour

@@ -46,6 +46,8 @@
 #include "commandpalette.h"
 #include "gotoanything.h"
 #include "builddialog.h"
+#include "specdialog.h"
+#include <turbo/specmodel.h>
 #include <turbo/fileeditor.h>
 #include <turbo/tpath.h>
 #include <tvision/internal/codepage.h>
@@ -53,6 +55,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 
@@ -525,6 +528,7 @@ TMenuBar *TurboApp::makeMenuBar(TRect r, int recentCount, int toolCount)
         *new TSubMenu( "~F~ile", kbAltF, hcNoContext ) +
             *new TMenuItem( "~N~ew", cmNew, kbCtrlN, hcNoContext, "Ctrl-N" ) +
             *new TMenuItem( "New ~F~ile...", cmNewNamedFile, kbNoKey, hcNoContext ) +
+            *new TMenuItem( "New Sp~e~c...", cmNewSpec, kbNoKey, hcNoContext ) +
             *new TMenuItem( "~O~pen...", cmOpen, kbCtrlO, hcNoContext, "Ctrl-O" ) +
             *new TMenuItem( "Open ~D~irectory...", cmOpenDir, kbNoKey, hcNoContext ) +
             *new TMenuItem( "Go to ~A~nything...", cmGotoAnything, kbNoKey, hcNoContext, "Ctrl-P" ) +
@@ -848,6 +852,7 @@ void TurboApp::handleEvent(TEvent &event)
             case cmToggleAutoSave: toggleAutoSave(); break;
             case cmLspSettings: editLspSettings(); break;
             case cmDebugSettings: editDebugSettings(); break;
+            case cmNewSpec: newSpec(); break;
             case cmThemeSettings: editThemeSettings(); break;
             case cmApplyTheme: applyActiveTheme(); break;
             case cmColorModeAuto: setColorMode("auto"); break;
@@ -2010,14 +2015,13 @@ void TurboApp::applyActiveTheme() noexcept
     // Persist only the diffs from the built-in defaults.
     storeThemeToSettings(settings);
     saveSettings(settings);
-    // Re-theme every open editor from the (now updated) active scheme. Editors
-    // carry no per-editor scheme, so applyTheming falls back to schemeActive.
+    // Re-theme every open editor from the (now updated) active scheme, routed
+    // through the per-window active-state theming so windows with their own
+    // surface (Lua brown, spec purple) keep it rather than snapping back to
+    // the plain scheme until the next focus change.
     MRUlist.forEach([] (EditorWindow *w) {
-        if (!w)
-            return;
-        auto &ed = w->getEditor();
-        turbo::applyTheming(ed.lexer, ed.scheme, ed.scintilla);
-        ed.redraw();
+        if (w)
+            w->applyActiveStateTheme();
     });
     // Repaint the window chrome (frames/scrollbars read windowSchemeActive).
     if (deskTop)
@@ -2043,12 +2047,12 @@ void TurboApp::setColorMode(const char *mode) noexcept
     // colours render through the terminal's own 16-colour palette regardless of
     // the detected depth, and getPalette() re-reads the mode on each redraw.
     applyThemeFromSettings(settings);
+    // Route through the per-window theming so Lua-brown and spec-purple
+    // surfaces re-derive their backgrounds for the new mode (e.g. the spec
+    // surface swaps between RGB violet and BIOS magenta).
     MRUlist.forEach([] (EditorWindow *w) {
-        if (!w)
-            return;
-        auto &ed = w->getEditor();
-        turbo::applyTheming(ed.lexer, ed.scheme, ed.scintilla);
-        ed.redraw();
+        if (w)
+            w->applyActiveStateTheme();
     });
     if (deskTop)
         deskTop->redraw();
@@ -2783,6 +2787,12 @@ void TurboApp::addEditor(turbo::TScintilla &scintilla, const char *path)
     auto &counter = fileCount[TPath::basename(path)];
     auto &editor = *new TurboEditor(scintilla, path);
     EditorWindow &w = *new EditorWindow(r, editor, counter, searchSettings, *this);
+    // Files under <project-root>/specs/ get the purple spec surface. Decided
+    // once here; applyActiveStateTheme() reads the flag on every focus change.
+    {
+        std::string rel = relInProject(projectRoot, path ? path : "");
+        w.isSpec = rel == "specs" || rel.rfind("specs/", 0) == 0;
+    }
     // Give it a stable 1..9 number for Turbo Vision's built-in Alt-1..9 window
     // selection. Assigned before inserting into the MRU list so the new window
     // isn't counted as already using a number; it stays fixed for the window's
@@ -3551,6 +3561,49 @@ void TurboApp::newTerminal()
     }
     auto *win = new TerminalWindow(r);
     deskTop->insert(win);
+}
+
+void TurboApp::newSpec()
+{
+    if (projectRoot.empty())
+    {
+        messageBox(mfError | mfOKButton,
+                   "Open a project first: specs live in its specs/ directory.");
+        return;
+    }
+    std::string title, domain, goal;
+    if (!executeNewSpecDialog(title, domain, goal))
+        return;
+    std::string stem = turbo::kebabCase(title);
+    if (stem.empty())
+    {
+        messageBox(mfError | mfOKButton,
+                   "The title needs at least one letter or digit.");
+        return;
+    }
+    std::error_code ec;
+    std::string dir = projectRoot + "/specs";
+    std::filesystem::create_directories(dir, ec);
+    std::string path = dir + "/" + stem + ".md";
+    if (std::filesystem::exists(path, ec))
+    {
+        // The spec already exists: editing it beats refusing or clobbering.
+        openOrFocus(path);
+        return;
+    }
+    char date[16];
+    std::time_t now = std::time(nullptr);
+    std::strftime(date, sizeof date, "%Y-%m-%d", std::localtime(&now));
+    {
+        std::ofstream f(path, std::ios::binary);
+        if (!f)
+        {
+            messageBox(mfError | mfOKButton, "Cannot create '%s'.", path.c_str());
+            return;
+        }
+        f << turbo::specTemplate(title, domain, goal, date);
+    }
+    openOrFocus(path);
 }
 
 void TurboApp::toggleAgent()

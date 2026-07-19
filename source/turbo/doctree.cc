@@ -271,6 +271,11 @@ static void scanInto(Node *parent, TNode **list, const std::string &dirPath,
             continue;
         auto *node = new Node(parent, full, isDir);
         --nodeBudget;
+        // The project's specs/ directory is the spec home: purple affordance
+        // so the methodology's artifacts are recognisable at a glance.
+        if (isDir && !projectRoot.empty() &&
+            samePath(full, projectRoot + "/specs"))
+            node->kind = NodeKind::Specs;
         if (isDir)
             // Every directory starts collapsed (including the top level), so the
             // tree opens compact; the user expands what they want, like any

@@ -618,6 +618,10 @@ if (TURBO_BUILD_TESTS)
         "${CMAKE_CURRENT_LIST_DIR}/deps/scintilla/src")
     find_library(GTEST gtest REQUIRED)
     find_library(GTEST_MAIN gtest_main REQUIRED)
+    # The gtest headers are not on the default search path everywhere (e.g.
+    # Homebrew's prefix on macOS); resolve them like the libraries above.
+    find_path(GTEST_INCLUDE gtest/gtest.h REQUIRED)
+    target_include_directories(${TURBO}-test PRIVATE ${GTEST_INCLUDE})
     target_link_libraries(${TURBO}-test PRIVATE
         ${TURBO}-core
         ${GTEST}

@@ -137,6 +137,8 @@ enum : ushort
     cmDebugCallStack, // reveal the Call Stack panel (Output-pane tab)
     cmDebugVariables, // reveal the Variables panel (Output-pane tab)
     cmDebugSettings,  // per-project debug-adapter settings dialog (.turbo/debug.json)
+    // Specs (spec-driven ALM; see specs/spec-workbench.md).
+    cmNewSpec,        // create specs/<name>.md from the template and open it
     // Recent-windows list in the Windows menu: cmWindowBase + i selects the
     // i-th most-recently-used editor window (i in [0, windowListMax)).
     cmWindowBase = 1100,

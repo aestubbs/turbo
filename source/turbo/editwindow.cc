@@ -590,6 +590,13 @@ constexpr TColorDesired
     cLuaBarTrough      = 0x2A1E12, // scrollbar trough
     cLuaBarThumb       = 0x6E5230, // scrollbar slider
     cLuaBarArrows      = 0xE8D4B0; // scrollbar arrows
+
+// Spec files (under <project-root>/specs/) render on a deep violet surface,
+// tuned to sit alongside the blue/gold palette: brighter when the window is
+// active, dimmer when passive. Text background only; frames stay standard.
+constexpr TColorDesired
+    cSpecBgActive  = 0x2A1B4D, // active: deep violet
+    cSpecBgPassive = 0x1F1838; // passive: darker, desaturated violet
 } // namespace
 
 // Window-chrome scheme for Lua script windows: the active chrome with the frame
@@ -629,9 +636,22 @@ void EditorWindow::applyActiveStateTheme() noexcept
     // the editor's text background is swapped to the matching shade.
     bool isLuaScript = ed.language == &Language::Lua;
     setScheme(isLuaScript ? &luaBrownScheme() : nullptr);
-    TColorDesired bg = isLuaScript
-        ? TColorDesired(active ? cLuaBgActive : cLuaBgPassive)
-        : ::getBack(windowSchemeActive[active ? wndFrameActive : wndFramePassive]);
+    TColorDesired bg;
+    if (isLuaScript)
+        bg = active ? cLuaBgActive : cLuaBgPassive;
+    else if (isSpec)
+    {
+        // Specs render on a deep purple surface so a spec is always
+        // recognisably a spec; frames keep their normal treatment. Classic
+        // 16-colour mode has no purple, so fall back to BIOS magenta there.
+        TColorDesired frameBg = ::getBack(windowSchemeActive[wndFrameActive]);
+        if (frameBg.isBIOS())
+            bg = TColorDesired(uchar(0x5)); // BIOS magenta
+        else
+            bg = active ? cSpecBgActive : cSpecBgPassive;
+    }
+    else
+        bg = ::getBack(windowSchemeActive[active ? wndFrameActive : wndFramePassive]);
     ColorScheme s;
     for (int i = 0; i < TextStyleCount; ++i)
         s[i] = schemeActive[i];

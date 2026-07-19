@@ -199,6 +199,9 @@ struct TurboApp : public TApplication, EditorWindowParent
     void onFilesChanged();
     // File-tree context-menu actions. Paths are absolute.
     void treeCreateFile(const std::string &dirPath);     // prompt + create + open
+    // Create a spec in <projectRoot>/specs/ from the template (FR3 of
+    // specs/spec-workbench.md): dialog for title/domain/goal, then open it.
+    void newSpec();
     void treeCreateFolder(const std::string &dirPath);   // prompt + mkdir
     void treeRenamePath(const std::string &path, bool isDir); // prompt + rename
     void treeStagePath(const std::string &path);         // git add

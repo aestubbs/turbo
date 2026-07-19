@@ -48,6 +48,8 @@ const PaletteCommand kCommands[] =
     { "Select Agent...",               cmSelectAgent,          "",             false },
     { "Suspend",                       cmDosShell,             "",             false },
     { "Exit",                          cmQuit,                 "Ctrl-Q",       false },
+    // Specs (spec-driven ALM)
+    { "New Spec...",                   cmNewSpec,              "",             false },
     // Navigation (new)
     { "Go to Anything...",             cmGotoAnything,         "Ctrl-P",       false },
     // Edit

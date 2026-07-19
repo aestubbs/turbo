@@ -14,6 +14,7 @@ enum class NodeKind : unsigned char {
     LuaHome,     // synthetic "Project/Global Lua" group    (its path is a label)
     SkillsHome,  // synthetic "Project/Global Skills" group (its path is a label)
     Skill,       // a skill: a real folder holding a SKILL.md
+    Specs,       // the project's specs/ directory: the spec home
 };
 
 // Which glyph set the tree draws with.

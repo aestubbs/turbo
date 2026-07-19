@@ -10,6 +10,7 @@ namespace {
 // rather than turning into a rainbow.
 constexpr uint32_t kFolder = 0xE3B341; // gold
 constexpr uint32_t kSkill  = 0xC792EA; // violet
+constexpr uint32_t kSpecs  = 0x9D7CD8; // deep purple: the spec surface's accent
 constexpr uint32_t kLua    = 0x6EA8FE; // blue
 constexpr uint32_t kMd     = 0x9CDC8C;
 constexpr uint32_t kCpp    = 0x6EC1FF;
@@ -154,6 +155,7 @@ uint32_t treeNameColor(NodeKind kind) noexcept
         case NodeKind::Dir:        return kFolder;
         case NodeKind::Skill:
         case NodeKind::SkillsHome: return kSkill;
+        case NodeKind::Specs:      return kSpecs;
         case NodeKind::LuaHome:    return kLua;
         case NodeKind::File:       break;
     }
@@ -174,6 +176,9 @@ TreeIcon treeIconFor(NodeKind kind, std::string_view path, bool expanded) noexce
             return { expanded ? g.folderOpen : g.folder, kLua, false };
         case NodeKind::SkillsHome:
             return { expanded ? g.folderOpen : g.folder, kSkill, false };
+        // The spec home is a container too: folder glyph, spec purple.
+        case NodeKind::Specs:
+            return { expanded ? g.folderOpen : g.folder, kSpecs, false };
         // A skill itself gets the book, open or closed: it is the thing that makes
         // it a skill rather than a plain folder.
         case NodeKind::Skill:

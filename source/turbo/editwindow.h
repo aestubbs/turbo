@@ -116,6 +116,11 @@ struct EditorWindow : public turbo::BasicEditorWindow
     std::uintmax_t diskSize {0};
     bool diskSigValid {false};
 
+    // The file lives under <project-root>/specs/: render the text on the deep
+    // purple spec surface (magenta in classic 16-colour mode). Set once at
+    // creation by TurboApp::addEditor(); frames keep their normal treatment.
+    bool isSpec {false};
+
     EditorWindow( const TRect &bounds, TurboEditor &aEditor, active_counter &fileCounter,
                   turbo::SearchSettings &searchSettings, EditorWindowParent &aParent ) noexcept;
 
