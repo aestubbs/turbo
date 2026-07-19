@@ -172,6 +172,14 @@ void SpecListView::handleEvent(TEvent &ev)
         }
         if (ch == 'n') { mgr.onNewSpec ? mgr.onNewSpec() : void();
                          clearEvent(ev); return; }
+        if (ch == 'd')
+        {
+            if (const SpecInfo *s = mgr.focusedSpec())
+                if (mgr.onDiscuss)
+                    mgr.onDiscuss(s->path);
+            clearEvent(ev);
+            return;
+        }
         if (ch == 'r') { mgr.markReviewedFocused(); clearEvent(ev); return; }
         if (ch == 'f') { mgr.cycleStatusFilter();   clearEvent(ev); return; }
         if (ch == '/') { mgr.promptTextFilter();    clearEvent(ev); return; }
@@ -253,10 +261,19 @@ void SpecGateLine::draw()
             text += " '" + mgr.textFilter + "'";
         text += "]";
     }
-    std::string legend = "Enter open  N new  R review  F/ filter";
-    b.moveStr(0, text.c_str(), c);
-    if ((int) (text.size() + legend.size() + 2) <= size.x)
-        b.moveStr(size.x - (int) legend.size(), legend.c_str(), colors.normal);
+    // The key legend anchors discoverability, so it always wins the space
+    // fight; the gate text truncates to what remains.
+    std::string legend = "N new  D discuss  R review  F/ filter";
+    int lx = size.x - (int) legend.size();
+    if (lx > 8)
+    {
+        if ((int) text.size() > lx - 2)
+            text.resize(lx - 2);
+        b.moveStr(0, text.c_str(), c);
+        b.moveStr(lx, legend.c_str(), colors.normal);
+    }
+    else
+        b.moveStr(0, text.c_str(), c);
     writeLine(0, 0, size.x, 1, b);
 }
 

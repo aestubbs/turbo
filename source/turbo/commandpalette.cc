@@ -51,6 +51,7 @@ const PaletteCommand kCommands[] =
     // Specs (spec-driven ALM)
     { "New Spec...",                   cmNewSpec,              "",             false },
     { "Spec Manager",                  cmSpecManager,          "Alt-P",        false },
+    { "Spec Workbench",                cmSpecWorkbench,        "",             true  },
     // Navigation (new)
     { "Go to Anything...",             cmGotoAnything,         "Ctrl-P",       false },
     // Edit

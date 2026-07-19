@@ -209,6 +209,9 @@ struct TurboApp : public TApplication, EditorWindowParent
     void newSpec();
     // Show (or focus) the Spec Manager window. Alt-P / cmSpecManager.
     void toggleSpecManager();
+    // The Spec Workbench (FR4): section strip on the focused spec editor,
+    // agent window alongside, tiled spec-left / agent-right.
+    void specWorkbench();
     void treeCreateFolder(const std::string &dirPath);   // prompt + mkdir
     void treeRenamePath(const std::string &path, bool isDir); // prompt + rename
     void treeStagePath(const std::string &path);         // git add

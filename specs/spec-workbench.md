@@ -518,6 +518,19 @@ Decided (proposed by this draft; overridable in review):
   `.turbo/.gitignore` retrofit afterwards. This had masked itself on
   long-lived checkouts where `.turbo/` already existed.
 
+- **D24 (2026-07-19):** M4 implementation notes. The "split" is exactly
+  D9's reuse: `cmSpecWorkbench` tiles the spec's editor window (left) and
+  the existing agent terminal (right) over the editor area, tree kept
+  visible — no new container window. FR6's strip is a one-row bar at the
+  top of the spec editor (the merge-conflict-bar pattern), recomputed from
+  the document on draw and nudged on every text modification: "Sections
+  n/m drafted | empty: …". Section states are empty/drafted only for now —
+  a "confirmed" state needs an in-document convention the interview pack
+  (M5) should define if it earns its keep. External edits reach the strip
+  through the existing filewatcher reload. The Manager gained the Discuss
+  row action; its legend now always wins the space fight with the gate
+  text (which truncates instead of evicting the legend).
+
 Open questions: none at present. Resolved questions live above as dated
 decisions; implementation may surface new ones (FR14).
 
@@ -538,7 +551,7 @@ decisions; implementation may surface new ones (FR14).
 - [x] **M3 — MCP `ask_user`.** Tool schema, wizard dialog (FieldInputLine,
       Back/Next/Finish, cancel sentinel, attribution line), JSON round-trip
       tests, PTY test driving the wizard via a fake MCP client.
-- [ ] **M4 — Spec Workbench window.** Split view (editor left, existing
+- [x] **M4 — Spec Workbench window.** Split view (editor left, existing
       agent terminal right per D9), per-section status strip,
       filewatcher-driven refresh, `cmSpecWorkbench`, Manager Discuss action.
       PTY tests for layout and external-edit refresh.

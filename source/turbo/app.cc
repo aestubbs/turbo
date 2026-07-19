@@ -568,6 +568,7 @@ TMenuBar *TurboApp::makeMenuBar(TRect r, int recentCount, int toolCount)
             *new TMenuItem( "Line ~W~rapping", cmToggleWrap, kbF9, hcNoContext, "F9" ) +
             *new TMenuItem( "Auto ~I~ndent", cmToggleIndent, kbNoKey, hcNoContext ) +
             *new TMenuItem( "Spec ~M~anager", cmSpecManager, kbAltP, hcNoContext, "Alt-P" ) +
+            *new TMenuItem( "Spec Wor~k~bench", cmSpecWorkbench, kbNoKey, hcNoContext ) +
             *new TMenuItem( "~H~idden Files", cmToggleHidden, kbNoKey, hcNoContext ) +
             *new TMenuItem( "Chan~g~e History", cmToggleChangeHistory, kbNoKey, hcNoContext ) +
             *new TMenuItem( "Long Line G~u~ide", cmToggleEdge, kbNoKey, hcNoContext ) +
@@ -858,6 +859,7 @@ void TurboApp::handleEvent(TEvent &event)
             case cmDebugSettings: editDebugSettings(); break;
             case cmNewSpec: newSpec(); break;
             case cmSpecManager: toggleSpecManager(); break;
+            case cmSpecWorkbench: specWorkbench(); break;
             case cmThemeSettings: editThemeSettings(); break;
             case cmApplyTheme: applyActiveTheme(); break;
             case cmColorModeAuto: setColorMode("auto"); break;
@@ -3659,7 +3661,47 @@ void TurboApp::toggleSpecManager()
     specMgr = new SpecManagerWindow(r, projectRoot + "/specs", &specMgr);
     specMgr->onOpen = [this] (const std::string &p) { openOrFocus(p); };
     specMgr->onNewSpec = [this] { newSpec(); };
+    specMgr->onDiscuss = [this] (const std::string &p) {
+        openOrFocus(p);
+        specWorkbench();
+    };
     deskTop->insert(specMgr);
+}
+
+void TurboApp::specWorkbench()
+{
+    EditorWindow *w = focusedEditor();
+    if (!w || !w->isSpec)
+    {
+        messageBox(mfError | mfOKButton,
+                   "Focus a spec (a file under specs/) first, or use the "
+                   "Spec Manager's Discuss action.");
+        return;
+    }
+    w->setSpecSectionsMode(true); // FR6: the per-section status strip
+    if (!agentWin)
+        toggleAgent(); // create (or it may fail; then the spec fills the area)
+    // Tile over the editor area, keeping a visible tree: spec left (the
+    // document is primary), agent right — the "split" is deliberate
+    // placement of the two existing windows (D9).
+    TRect r = deskTop->getExtent();
+    if (docTree && (docTree->state & sfVisible))
+    {
+        TRect t = docTree->getBounds();
+        if (t.a.x > r.b.x - t.b.x)
+            r.b.x = max(t.a.x, 20);
+        else
+            r.a.x = min(t.b.x, r.b.x - 20);
+    }
+    int mid = (r.a.x + r.b.x) / 2;
+    if (agentWin)
+    {
+        TRect right(mid, r.a.y, r.b.x, r.b.y);
+        agentWin->locate(right);
+    }
+    TRect left(r.a.x, r.a.y, agentWin ? mid : r.b.x, r.b.y);
+    w->locate(left);
+    w->select();
 }
 
 void TurboApp::toggleAgent()

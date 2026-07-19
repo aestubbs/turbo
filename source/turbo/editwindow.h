@@ -68,6 +68,19 @@ struct EditorConflictBar : public TView
     void handleEvent(TEvent &ev) override;
 };
 
+// A one-row strip docked at the top of a spec editor (the Workbench's FR6
+// status strip): section count plus which canonical sections are still
+// empty, recomputed from the document like the conflict bar. Shaded to
+// match the frame.
+struct SpecSectionBar : public TView
+{
+    EditorWindow *win {nullptr};
+
+    SpecSectionBar(const TRect &bounds, EditorWindow *win) noexcept;
+
+    void draw() override;
+};
+
 struct EditorWindowParent
 {
     virtual void handleFocus(EditorWindow &w) noexcept = 0;
@@ -105,6 +118,7 @@ struct EditorWindow : public turbo::BasicEditorWindow
 
     TView *bottomView {nullptr};
     EditorConflictBar *conflictBar {nullptr};
+    SpecSectionBar *specBar {nullptr};
     SearchState searchState;
 
     // External-change detection: the modification time and size of filePath() on
@@ -143,6 +157,9 @@ struct EditorWindow : public turbo::BasicEditorWindow
     // Show/hide the merge-conflict toolbar at the top of the window. Idempotent;
     // driven from git status (the file's Conflicted/unmerged state).
     void setConflictMode(bool on) noexcept;
+
+    // Show/hide the spec section-status strip (Workbench FR6). Idempotent.
+    void setSpecSectionsMode(bool on) noexcept;
 
     void closeBottomView();
     void setBottomView(TView *view);

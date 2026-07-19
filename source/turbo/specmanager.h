@@ -57,6 +57,7 @@ struct SpecManagerWindow : public TWindow
     // TurboApp (the OutputView::onActivate pattern).
     std::function<void(const std::string &path)> onOpen;
     std::function<void()> onNewSpec;
+    std::function<void(const std::string &path)> onDiscuss; // -> Workbench
 
     std::string specsDir;
     std::vector<turbo::SpecInfo> specs;  // scanned, newest first

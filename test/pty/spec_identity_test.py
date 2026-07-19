@@ -290,6 +290,31 @@ check("ask: cancel sentinel explicit", cancelled.get("cancelled") is True)
 check("ask: attribution line shown", "From: pty-fake-agent" in s4)
 check("ask: wizard pages numbered", "Agent Question (1/2)" in s4)
 
+# --- Session 5: Spec Workbench (strip + agent tiled alongside) --------------
+setup()
+os.makedirs(PROJ + "/.turbo", exist_ok=True)
+# A harmless stand-in agent: /bin/cat just sits on its pty. The test must
+# never launch a real agent CLI.
+with open(PROJ + "/.turbo/config.json", "w") as f:
+    json.dump({"agent": "/bin/cat"}, f)
+
+def actions_workbench(send, drain):
+    send(["\x10"]); drain(0.6)
+    send(list("test-spec")); drain(0.5)
+    send(["\r"]); drain(1.5)
+    open_via_palette(send, drain, "Workbench")
+    drain(3.0)
+
+out5 = run_session({}, actions_workbench)
+s5 = stripped(out5)
+# The fixture spec: Background (drafted), Objective (empty), Implementation
+# Plan (has a checkbox), so the strip reads "Sections 2/3 drafted | empty:
+# Objective".
+check("wb: section strip counts", "Sections 2/3 drafted" in s5)
+check("wb: strip names the empty section", "empty: Objective" in s5)
+check("wb: agent window opened alongside", "Agent (/bin/cat)" in s5)
+check("wb: spec text still visible", "background text for rendering" in s5)
+
 print()
 fails = [n for n, ok in results if not ok]
 print(f"{len(results) - len(fails)}/{len(results)} passed")

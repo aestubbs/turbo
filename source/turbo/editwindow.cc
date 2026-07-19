@@ -12,6 +12,7 @@
 #include <turbo/scintilla.h>
 #include <turbo/styles.h>
 #include <turbo/editstates.h>
+#include <turbo/specmodel.h>
 #include "editwindow.h"
 #include "app.h"
 #include "apputils.h"
@@ -727,7 +728,11 @@ void EditorWindow::handleNotification(const SCNotification &scn, turbo::Editor &
             break;
         case SCN_MODIFIED:
             if (scn.modificationType & (SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT))
+            {
                 parent.editorTextChanged(*this);
+                if (specBar)
+                    specBar->drawView(); // keep the section strip live
+            }
             break;
         case SCN_CHARADDED:
             parent.editorCharAdded(*this, scn.ch);
@@ -800,6 +805,73 @@ void EditorWindow::setConflictMode(bool on) noexcept
         shiftEditorTop(editor, -1);
         TObject::destroy(conflictBar);
         conflictBar = nullptr;
+    }
+    editor.redraw();
+}
+
+SpecSectionBar::SpecSectionBar(const TRect &bounds, EditorWindow *aWin) noexcept :
+    TView(bounds), win(aWin)
+{
+}
+
+void SpecSectionBar::draw()
+{
+    TColorAttr cBar = win ? win->mapColor(turbo::wndFrameActive + 1) : TColorAttr {};
+    TDrawBuffer b;
+    b.moveChar(0, ' ', cBar, size.x);
+    if (win)
+    {
+        std::string doc = docText(win->getEditor());
+        auto sections = turbo::specSections(doc);
+        int drafted = 0;
+        std::string empties;
+        for (auto &s : sections)
+        {
+            if (!s.empty)
+            {
+                ++drafted;
+                continue;
+            }
+            if (!empties.empty())
+                empties += ", ";
+            empties += s.title;
+        }
+        std::string t = " Sections " + std::to_string(drafted) + "/" +
+                        std::to_string(sections.size()) + " drafted";
+        if (!empties.empty())
+            t += "  |  empty: " + empties;
+        if ((int) t.size() > size.x)
+        {
+            t.resize(size.x);
+            // Never cut a UTF-8 sequence in half: stray bytes leak as CP437.
+            while (!t.empty() && ((unsigned char) t.back() & 0xC0) == 0x80)
+                t.pop_back();
+        }
+        b.moveStr(0, t.c_str(), cBar);
+    }
+    writeLine(0, 0, size.x, 1, b);
+}
+
+void EditorWindow::setSpecSectionsMode(bool on) noexcept
+{
+    if (on == (specBar != nullptr))
+        return; // idempotent
+    if (on)
+    {
+        TRect r = getExtent();
+        r.grow(-1, -1);
+        r.a.y += conflictBar ? 1 : 0; // sit under the conflict bar if present
+        r.b.y = r.a.y + 1;
+        specBar = new SpecSectionBar(r, this);
+        specBar->growMode = gfGrowHiX;
+        insert(specBar);
+        shiftEditorTop(editor, +1);
+    }
+    else
+    {
+        shiftEditorTop(editor, -1);
+        TObject::destroy(specBar);
+        specBar = nullptr;
     }
     editor.redraw();
 }
