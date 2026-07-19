@@ -77,6 +77,34 @@ const char kContract[] = R"CONTRACT(## Write-back contract
   discussion in the conversation.
 )CONTRACT";
 
+// A product-flavoured pack (D11): the default's discipline plus the
+// commercial sections a product spec earns. Selected by frontmatter
+// `domain: saas-product`; proof that packs are configuration, not code.
+const char kSaasPack[] = R"PACK(## Interview guide (saas-product pack)
+
+Everything in the default discipline applies: work section by section, one
+question at a time, distil answers into the document. This pack adds the
+commercial dimensions a product spec must pin down. Introduce these as
+their own `# ` sections when they earn their keep (D11):
+
+- Monetisation: who pays, for what unit of value, at what price point?
+  Free tier boundaries; upgrade triggers; billing model.
+- Differentiation / Originality: what exists already; why this wins; what
+  is defensible (data, distribution, integration depth)?
+- Scaling: expected load curve, cost per user, what breaks first at 10x.
+
+## Readiness rubric (hard gate)
+
+All eight default items, plus:
+
+9. Monetisation states who pays and for what; pricing assumptions listed.
+10. Differentiation names the top alternatives and this product's wedge.
+11. Scaling states the first bottleneck and the plan past it.
+
+Record the assessment as a dated Decisions entry (one pointer per item)
+before setting status: ready.
+)PACK";
+
 std::string readFileIfAny(const std::string &path)
 {
     std::ifstream f(path, std::ios::binary);
@@ -122,6 +150,8 @@ std::string resolveSpecPack(const std::string &domain,
         if (!s.empty())
             return s;
     }
+    if (name == "saas-product")
+        return std::string(kDefaultPack) + "\n" + kSaasPack;
     return kDefaultPack;
 }
 

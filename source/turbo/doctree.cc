@@ -1182,7 +1182,17 @@ Boolean drawNode( TOutlineViewer *v, TNode *cur, int level, int position,
     //    would mean a folder lost its gold the moment anything inside it changed.
     TStringView text = v->getText(cur);
     TColorAttr c = rc.text;
-    if (uint32_t nameFg = treeNameColor(node->kind); nameFg && !focused && !selected)
+    uint32_t nameFg = treeNameColor(node->kind);
+    if (!nameFg && !node->isDir)
+        // Files inside the spec home carry its tint (FR15's secondary
+        // surface): a spec is recognisably a spec in the tree too.
+        for (Node *p = node->parent; p; p = p->parent)
+            if (p->kind == NodeKind::Specs)
+            {
+                nameFg = treeNameColor(NodeKind::Specs);
+                break;
+            }
+    if (nameFg && !focused && !selected)
         setFore(c, TColorRGB(nameFg));
     if (node->editor)
         setStyle(c, getStyle(c) | slBold);

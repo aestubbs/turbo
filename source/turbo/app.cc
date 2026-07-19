@@ -53,6 +53,7 @@
 #include <turbo/specmodel.h>
 #include <turbo/fileeditor.h>
 #include <turbo/tpath.h>
+#include <turbo/process.h>
 #include <tvision/internal/codepage.h>
 #include <algorithm>
 #include <cctype>
@@ -3595,6 +3596,22 @@ void TurboApp::newTerminal()
     deskTop->insert(win);
 }
 
+// D20: the methodology's "a fresh checkout carries the specs" guarantee dies
+// silently if specs/ is gitignored. One quick git query; quiet when git or a
+// repository is absent.
+static void warnIfSpecsIgnored(const std::string &projectRoot,
+                               const std::string &relPath)
+{
+    std::string out;
+    int code = turbo::Process::runToEnd("git", {"check-ignore", "-q", relPath},
+                                        out, projectRoot);
+    if (code == 0)
+        messageBox(mfWarning | mfOKButton,
+                   "'%s' is ignored by .gitignore: a fresh checkout will not "
+                   "carry the specs. Whitelist specs/ so the methodology "
+                   "lives in the repository.", relPath.c_str());
+}
+
 void TurboApp::newSpec()
 {
     if (projectRoot.empty())
@@ -3637,6 +3654,7 @@ void TurboApp::newSpec()
     }
     if (specMgr)
         specMgr->refresh();
+    warnIfSpecsIgnored(projectRoot, "specs/" + stem + ".md");
     openOrFocus(path);
 }
 
@@ -3676,6 +3694,7 @@ void TurboApp::toggleSpecManager()
         implementSpec(p);
     };
     deskTop->insert(specMgr);
+    warnIfSpecsIgnored(projectRoot, "specs");
 }
 
 void TurboApp::launchSpecAgent(const std::string &specPath, SpecAgentMode mode)

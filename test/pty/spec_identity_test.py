@@ -173,6 +173,8 @@ if created:
 # The new spec window opened -> its purple bg present again (already covered),
 # and the tree shows the specs entry
 check("full: tree shows specs dir", "specs" in s1)
+# Spec files are tinted with the spec purple accent 0x9D7CD8 in the tree.
+check("full: spec file tinted in tree", has_sgr(out1, 38, 2, 157, 124, 216))
 
 # --- Session 2: classic 16-colour mode -------------------------------------
 def actions_classic(send, drain):
@@ -377,6 +379,22 @@ check("impl: implement brief written", os.path.exists(impl_brief))
 if os.path.exists(impl_brief):
     check("impl: brief carries the implement mission",
           "Mission: implement" in open(impl_brief).read())
+
+# --- Session 8: D20 — warn when specs/ is gitignored ------------------------
+setup()
+subprocess.run(["git", "init", "-q"], cwd=PROJ, check=False)
+with open(PROJ + "/.gitignore", "w") as f:
+    f.write("specs\n")
+
+def actions_ignored(send, drain):
+    open_via_palette(send, drain, "New Spec")
+    send(list("Hidden Feature")); drain(0.3)
+    send(["\r"]); drain(2.0)   # OK -> file created -> D20 warning box
+    send(["\r"]); drain(1.0)   # dismiss
+
+out8 = run_session({}, actions_ignored)
+s8 = stripped(out8)
+check("ignored: D20 warning shown for gitignored specs/", "gitignore" in s8)
 
 print()
 fails = [n for n, ok in results if not ok]

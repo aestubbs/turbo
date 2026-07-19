@@ -1,6 +1,6 @@
 ---
 title: Spec Workbench — structured, agent-assisted specifications
-status: implementing
+status: implemented
 domain: ide-feature
 created: 2026-07-19
 updated: 2026-07-19
@@ -556,6 +556,25 @@ Decided (proposed by this draft; overridable in review):
   not set them optimistically at launch — a launch that dies leaves the
   spec's status truthful).
 
+- **D27 (2026-07-19):** M7 implementation notes, and scope calls. Doctree
+  surfacing is a purple tint on spec *files* (the status letter belongs to
+  the Manager: the tree's right-edge gutter is the git badge column, and
+  overloading it would collide). A statusline badge was dropped for the
+  same reason — FR15's primary surface (the Manager) plus tree identity
+  covers it; revisit only on demand. Second built-in pack: `saas-product`
+  (default discipline + monetisation/differentiation/scaling sections and
+  three extra rubric items), selected via frontmatter `domain`. D20 check:
+  `git check-ignore` on Manager open and after New Spec, warning that a
+  fresh checkout would not carry the specs. User docs at
+  `docs/spec_workbench.md`.
+- **D28 (2026-07-19):** Implementation complete. All seven milestones
+  verified: 39/39 PTY checks against the real binary (colour identity in
+  both modes, Manager, wizard over the real MCP bridge, Workbench,
+  write-back reload, gated handoff, D20 warning) and 37 unit tests
+  (14 spec-model + pre-existing). Status advanced implementing →
+  implemented per the write-back contract this spec defined for its own
+  kind.
+
 Open questions: none at present. Resolved questions live above as dated
 decisions; implementation may surface new ones (FR14).
 
@@ -590,7 +609,7 @@ decisions; implementation may surface new ones (FR14).
       open questions), agent selection from config, confirmation dialog,
       standard handoff prompt embedding the write-back contract (including
       the blocking-discovery regression of FR14); status transitions.
-- [ ] **M7 — Status surfacing + polish.** Doctree/statusline status
+- [x] **M7 — Status surfacing + polish.** Doctree/statusline status
       badges (FR15), docs, additional domain pack as proof of
       configurability (e.g. "SaaS product" with monetisation questions);
       the D20 gitignore check (warn from cmNewSpec/Manager when specs/ is
