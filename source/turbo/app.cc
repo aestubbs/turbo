@@ -48,6 +48,7 @@
 #include "builddialog.h"
 #include "specdialog.h"
 #include "specmanager.h"
+#include "specagent.h"
 #include "askdialog.h"
 #include <turbo/specmodel.h>
 #include <turbo/fileeditor.h>
@@ -3663,9 +3664,73 @@ void TurboApp::toggleSpecManager()
     specMgr->onNewSpec = [this] { newSpec(); };
     specMgr->onDiscuss = [this] (const std::string &p) {
         openOrFocus(p);
+        launchSpecAgent(p, SpecAgentMode::Discuss);
         specWorkbench();
     };
+    specMgr->onDraft = [this] (const std::string &p) {
+        launchSpecAgent(p, SpecAgentMode::Draft);
+    };
     deskTop->insert(specMgr);
+}
+
+void TurboApp::launchSpecAgent(const std::string &specPath, SpecAgentMode mode)
+{
+    if (projectRoot.empty())
+        return;
+    std::string cmd = resolveAgentCommand(buildConfig.agent, settings.defaultAgent);
+    if (cmd.empty())
+    {
+        messageBox("No coding agent is configured.", mfInformation | mfOKButton);
+        return;
+    }
+    // The command line comes only from agent config, never from spec content;
+    // the user confirms before anything runs (Security Considerations).
+    std::string specName {TPath::basename(specPath)};
+    if (messageBox(mfConfirmation | mfYesButton | mfNoButton,
+                   "Launch '%s' as the spec agent (%s) on '%s'?",
+                   cmd.c_str(), specAgentModeName(mode),
+                   specName.c_str()) != cmYes)
+        return;
+    std::string domain;
+    {
+        std::ifstream in(specPath, std::ios::binary);
+        if (in)
+        {
+            std::ostringstream ss;
+            ss << in.rdbuf();
+            domain = turbo::parseSpec(ss.str(), specPath).domain;
+        }
+    }
+    std::string stem = specName;
+    if (size_t dot = stem.find_last_of('.'); dot != std::string::npos && dot)
+        stem.resize(dot);
+    std::string brief = specAgentBrief(mode, specPath, domain, projectRoot);
+    std::string briefPath = writeSpecBrief(projectRoot, stem, mode, brief);
+    if (briefPath.empty())
+    {
+        messageBox(mfError | mfOKButton, "Cannot write the agent brief under "
+                                         ".turbo/spec-sessions/.");
+        return;
+    }
+    std::string prompt = "Read and follow the instructions in '" + briefPath +
+                         "'. The spec is '" + specPath + "'.";
+    std::string full = cmd + " " + shellQuoteArg(prompt);
+    if (agentWin)
+        agentWin->close(); // shutDown() nulls agentWin
+    TRect r = deskTop->getExtent();
+    if (docTree && (docTree->state & sfVisible))
+    {
+        TRect t = docTree->getBounds();
+        if (t.a.x > r.b.x - t.b.x)
+            r.b.x = max(t.a.x, 20);
+        else
+            r.a.x = min(t.b.x, r.b.x - 20);
+    }
+    agentWin = new TerminalWindow(r, full,
+                                  "Spec Agent (" + cmd + ", " +
+                                      specAgentModeName(mode) + ")",
+                                  &agentWin);
+    deskTop->insert(agentWin);
 }
 
 void TurboApp::specWorkbench()
@@ -3680,7 +3745,10 @@ void TurboApp::specWorkbench()
     }
     w->setSpecSectionsMode(true); // FR6: the per-section status strip
     if (!agentWin)
-        toggleAgent(); // create (or it may fail; then the spec fills the area)
+        // No agent running: bring up the spec agent briefed for the
+        // interview. A running agent (e.g. just launched by Discuss, or a
+        // conversation in progress) is left untouched.
+        launchSpecAgent(w->filePath(), SpecAgentMode::Discuss);
     // Tile over the editor area, keeping a visible tree: spec left (the
     // document is primary), agent right — the "split" is deliberate
     // placement of the two existing windows (D9).

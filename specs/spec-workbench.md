@@ -531,6 +531,21 @@ Decided (proposed by this draft; overridable in review):
   row action; its legend now always wins the space fight with the gate
   text (which truncates instead of evicting the legend).
 
+- **D25 (2026-07-19):** M5 implementation notes. Agent launches use a
+  brief-pointer pattern: the resolved pack + mode mission + write-back
+  contract are written to `.turbo/spec-sessions/<spec>-<mode>.md` and the
+  CLI gets one short quoted prompt pointing at it — no page-long shell
+  quoting, and the brief is inspectable/diffable. Pack resolution order
+  (D6 refined): `<root>/turbo-scripts/spec-packs/<domain>.md` →
+  `~/.turbo/spec-packs/<domain>.md` → the built-in default; empty domain
+  resolves as "default". Conversation transcripts are delegated to the
+  agent CLI's own session store (e.g. `claude --continue`) — turbo keeps
+  the briefs; revisit if agent-native persistence proves insufficient.
+  Every launch (Discuss/Draft/Implement) is confirmed by the user first,
+  per Security Considerations; the Manager's Draft key is W. Gate-blocker
+  wording was compacted ("not reviewed", "dep 'x' is 'draft'") since the
+  Manager's Status column already carries the state.
+
 Open questions: none at present. Resolved questions live above as dated
 decisions; implementation may surface new ones (FR14).
 
@@ -555,7 +570,7 @@ decisions; implementation may surface new ones (FR14).
       agent terminal right per D9), per-section status strip,
       filewatcher-driven refresh, `cmSpecWorkbench`, Manager Discuss action.
       PTY tests for layout and external-edit refresh.
-- [ ] **M5 — Domain pack + Build mode.** Default spec-interview skill:
+- [x] **M5 — Domain pack + Build mode.** Default spec-interview skill:
       section prompts, question checklists, hard-gate readiness rubric (D8),
       distil-don't-transcribe and no-secrets instructions; Draft prompt
       variant (FR18) wired to the Manager's Draft action; session transcript

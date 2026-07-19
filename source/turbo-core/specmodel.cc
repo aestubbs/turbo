@@ -240,10 +240,10 @@ std::vector<std::string> specGateBlockers(const SpecInfo &spec,
                                           const std::vector<SpecInfo> &all)
 {
     std::vector<std::string> blockers;
+    // Compact wording: these render on one shared line in the Manager, and
+    // the row's Status column already shows the state itself.
     if (spec.status != "reviewed")
-        blockers.push_back(spec.status.empty()
-            ? "no status (needs review)"
-            : "status is '" + spec.status + "' (needs review)");
+        blockers.push_back("not reviewed");
     for (const std::string &dep : spec.depends)
     {
         const SpecInfo *found = nullptr;
@@ -254,11 +254,11 @@ std::vector<std::string> specGateBlockers(const SpecInfo &spec,
                 break;
             }
         if (!found)
-            blockers.push_back("dependency '" + dep + "' not found");
+            blockers.push_back("dep '" + dep + "' not found");
         else if (found->status != "implemented")
-            blockers.push_back("dependency '" + dep + "' is '" +
+            blockers.push_back("dep '" + dep + "' is '" +
                                (found->status.empty() ? "draft" : found->status) +
-                               "', not implemented");
+                               "'");
     }
     if (spec.openQuestions > 0)
         blockers.push_back(std::to_string(spec.openQuestions) + " open question" +

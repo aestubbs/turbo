@@ -198,7 +198,7 @@ s3 = stripped(out3)
 check("mgr: column headers shown",
       all(h in s3 for h in ("Title", "Status", "Domain", "Updated", "Plan")))
 check("mgr: spec row shown with title", "Test Spec" in s3)
-check("mgr: gate line shows blocked reason", "needs review" in s3)
+check("mgr: gate line shows blocked reason", "Blocked: not reviewed" in s3)
 check("mgr: key legend shown", "R review" in s3)
 body3 = open(PROJ + "/specs/test-spec.md").read()
 check("mgr: mark reviewed wrote status", "status: reviewed" in body3)
@@ -303,7 +303,8 @@ def actions_workbench(send, drain):
     send(list("test-spec")); drain(0.5)
     send(["\r"]); drain(1.5)
     open_via_palette(send, drain, "Workbench")
-    drain(3.0)
+    drain(1.0)
+    send(["\r"]); drain(2.5)   # confirm "Launch ... as the spec agent?"
 
 out5 = run_session({}, actions_workbench)
 s5 = stripped(out5)
@@ -312,8 +313,40 @@ s5 = stripped(out5)
 # Objective".
 check("wb: section strip counts", "Sections 2/3 drafted" in s5)
 check("wb: strip names the empty section", "empty: Objective" in s5)
-check("wb: agent window opened alongside", "Agent (/bin/cat)" in s5)
+check("wb: spec agent window opened alongside", "Spec Agent (/bin/cat" in s5)
 check("wb: spec text still visible", "background text for rendering" in s5)
+brief_path = PROJ + "/.turbo/spec-sessions/test-spec-discuss.md"
+check("wb: interview brief written", os.path.exists(brief_path))
+if os.path.exists(brief_path):
+    brief = open(brief_path).read()
+    check("wb: brief carries the rubric", "Readiness rubric" in brief)
+    check("wb: brief carries the contract", "Write-back contract" in brief)
+    check("wb: brief names the spec", PROJ + "/specs/test-spec.md" in brief)
+
+# --- Session 6: agent write-back reaches the open editor (FR5) --------------
+setup()
+
+def actions_agentloop(send, drain):
+    send(["\x10"]); drain(0.6)
+    send(list("test-spec")); drain(0.5)
+    send(["\r"]); drain(1.5)
+    # An external "spec agent" writes a distilled answer into the file on
+    # disk; the clean editor buffer must silently reload it (FR5).
+    body = open(PROJ + "/specs/test-spec.md").read()
+    body = body.replace("# Objective\n",
+                        "# Objective\n\nDistilled by the spec agent.\n")
+    with open(PROJ + "/specs/test-spec.md", "w") as f:
+        f.write(body)
+    drain(3.0)  # FSEvents latency
+    send(["\x1b[B"])  # any key: nudges the event loop through an idle tick
+    drain(4.0)
+
+out6 = run_session({}, actions_agentloop)
+s6 = stripped(out6)
+# Single-token match: the terminal may replace runs of spaces with cursor
+# moves, so multi-word phrases are not reliable across a redraw.
+check("loop: agent-written text reloads into the open editor",
+      "Distilled" in s6)
 
 print()
 fails = [n for n, ok in results if not ok]

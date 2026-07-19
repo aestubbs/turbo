@@ -152,10 +152,10 @@ TEST(SpecModel, GateBlocksOnStatusDepsAndQuestions)
     all[1].openQuestions = 2;
     auto blockers = specGateBlockers(all[1], all);
     ASSERT_EQ(blockers.size(), 4u);
-    EXPECT_NE(blockers[0].find("needs review"), std::string::npos);
-    EXPECT_NE(blockers[1].find("'dep-draft' is 'draft'"), std::string::npos);
-    EXPECT_NE(blockers[2].find("'missing-dep' not found"), std::string::npos);
-    EXPECT_NE(blockers[3].find("2 open questions"), std::string::npos);
+    EXPECT_EQ(blockers[0], "not reviewed");
+    EXPECT_EQ(blockers[1], "dep 'dep-draft' is 'draft'");
+    EXPECT_EQ(blockers[2], "dep 'missing-dep' not found");
+    EXPECT_EQ(blockers[3], "2 open questions");
 }
 
 TEST(SpecModel, GateResolvesDependsByIdToo)

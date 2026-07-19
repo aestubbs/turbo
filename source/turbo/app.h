@@ -36,6 +36,7 @@ struct BranchView;
 struct TerminalView;
 struct TerminalWindow;
 struct SpecManagerWindow;
+enum class SpecAgentMode;
 
 // A configured tool process, toggled on/off from the Run menu (e.g. `npm run
 // dev`). Independent of Build/Run: it runs long-lived until toggled off, and its
@@ -212,6 +213,10 @@ struct TurboApp : public TApplication, EditorWindowParent
     // The Spec Workbench (FR4): section strip on the focused spec editor,
     // agent window alongside, tiled spec-left / agent-right.
     void specWorkbench();
+    // Launch the configured agent CLI in the agent window with a spec brief
+    // (interview pack + write-back contract) for Discuss/Draft/Implement.
+    // Replaces any running agent window after user confirmation.
+    void launchSpecAgent(const std::string &specPath, SpecAgentMode mode);
     void treeCreateFolder(const std::string &dirPath);   // prompt + mkdir
     void treeRenamePath(const std::string &path, bool isDir); // prompt + rename
     void treeStagePath(const std::string &path);         // git add

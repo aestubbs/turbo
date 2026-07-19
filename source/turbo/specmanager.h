@@ -58,6 +58,7 @@ struct SpecManagerWindow : public TWindow
     std::function<void(const std::string &path)> onOpen;
     std::function<void()> onNewSpec;
     std::function<void(const std::string &path)> onDiscuss; // -> Workbench
+    std::function<void(const std::string &path)> onDraft;   // autonomous draft
 
     std::string specsDir;
     std::vector<turbo::SpecInfo> specs;  // scanned, newest first
