@@ -3,9 +3,13 @@
 
 #include <turbo/mcp/transport.h>
 
+#include "asktypes.h"
+
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <string>
+#include <vector>
 
 class LuaManager;
 
@@ -54,12 +58,24 @@ public:
     // arriving on the socket thread nudges the UI loop to pump() promptly.
     void setWake(std::function<void()> wake) noexcept { transport.onWake = std::move(wake); }
 
+    // Wire the ask_user tool to the wizard dialog (specs/spec-workbench.md
+    // FR11/FR12). Called on the main thread from pump(); returns false when
+    // the user cancelled. Unset = the tool reports "no UI available".
+    using AskUserFn = std::function<bool(const std::string &attribution,
+                                         const std::vector<AskQuestion> &,
+                                         std::vector<AskAnswer> &)>;
+    void setAskUser(AskUserFn fn) noexcept { askUser = std::move(fn); }
+
 private:
     void handleMessage(uint64_t connId, const std::string &msg) noexcept;
 
     LuaManager &lua;
     std::function<void(const std::string &)> message;
     turbo::mcp::SocketServer transport;
+    AskUserFn askUser;
+    // Client name per connection (from initialize's clientInfo), for the
+    // ask_user attribution line.
+    std::map<uint64_t, std::string> clientNames;
     bool inPump {false}; // reentrancy guard: a tool may pump modal UI
 };
 

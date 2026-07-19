@@ -48,6 +48,7 @@
 #include "builddialog.h"
 #include "specdialog.h"
 #include "specmanager.h"
+#include "askdialog.h"
 #include <turbo/specmodel.h>
 #include <turbo/fileeditor.h>
 #include <turbo/tpath.h>
@@ -1208,6 +1209,9 @@ void TurboApp::openProject(const std::string &dir) noexcept
                     .find("claude") != std::string::npos)
                 registerClaudeMcpServerAsync(projectRoot, sock);
         }
+        // mcpSocketPath may have just created .turbo (fresh project): make
+        // sure it carries its ignore-everything .gitignore from the start.
+        ensureTurboCacheIgnored(projectRoot);
     }
     refreshLuaScriptsInTree(); // now includes the project's own scripts
     refreshSkillsInTree();     // and the project's .claude/skills
@@ -1524,6 +1528,13 @@ void TurboApp::initLua() noexcept
     // project-scoped. A socket message on the reader thread nudges the idle loop.
     mcp = std::make_unique<McpServer>(*luaMgr);
     mcp->setWake([] { TEventQueue::wakeUp(); });
+    // ask_user tool -> the native wizard (specs/spec-workbench.md FR11/FR12).
+    // Dispatch happens on the main thread from pump(), so modal UI is safe.
+    mcp->setAskUser([] (const std::string &attribution,
+                        const std::vector<AskQuestion> &questions,
+                        std::vector<AskAnswer> &answers) {
+        return executeAskUserWizard(attribution, questions, answers);
+    });
 
     // init.lua lives at the top of each Lua home: project first, then global.
     luaMgr->loadInitScripts(projectLuaHome(projectRoot), globalLuaHome());

@@ -95,6 +95,36 @@ Json builtinToolList()
         objectSchema({}));
     add("shell", "Run a shell command in the project directory; returns its stdout.",
         objectSchema({{"cmd", "string", "The shell command line", true}}));
+    // ask_user has a nested schema the flat objectSchema helper can't express.
+    Json questionSchema = {
+        {"type", "object"},
+        {"properties", {
+            {"prompt", {{"type", "string"},
+                        {"description", "The question text"}}},
+            {"options", {{"type", "array"}, {"items", {{"type", "string"}}},
+                         {"description", "Preset choices (max 16). Omit for a "
+                                         "free-text answer."}}},
+            {"multi_select", {{"type", "boolean"},
+                              {"description", "Allow choosing several options"}}},
+            {"free_text", {{"type", "boolean"},
+                           {"description", "Offer a free-text field besides "
+                                           "the options"}}},
+        }},
+        {"required", Json::array({"prompt"})},
+    };
+    add("ask_user",
+        "Ask the user questions through a native turboIDE dialog wizard (one "
+        "page per question, Back/Next/Finish). Use it for decisions with "
+        "enumerable options or short structured input; keep open-ended "
+        "discussion in the conversation. Returns JSON {cancelled, answers: "
+        "[{prompt, selected, text}]}. cancelled=true means the user dismissed "
+        "the wizard - never treat that as empty answers.",
+        Json{{"type", "object"},
+             {"properties", {{"questions", {{"type", "array"},
+                                            {"items", questionSchema},
+                                            {"description", "The questions, in "
+                                                            "order (max 8)"}}}}},
+             {"required", Json::array({"questions"})}});
     return tools;
 }
 
@@ -193,6 +223,12 @@ void McpServer::handleMessage(uint64_t connId, const std::string &msg) noexcept
         if (req.contains("params") && req["params"].contains("protocolVersion") &&
             req["params"]["protocolVersion"].is_string())
             ver = req["params"]["protocolVersion"].get<std::string>();
+        // Remember who this is: ask_user dialogs are attributed to the
+        // asking client so agent-driven UI is never mistaken for turbo's.
+        if (req.contains("params") && req["params"].contains("clientInfo") &&
+            req["params"]["clientInfo"].is_object())
+            clientNames[connId] =
+                req["params"]["clientInfo"].value("name", std::string());
         Json result = {
             {"protocolVersion", ver},
             {"capabilities", {{"tools", {{"listChanged", false}}}}},
@@ -241,6 +277,60 @@ void McpServer::handleMessage(uint64_t connId, const std::string &msg) noexcept
         else if (name == "run_command") { if (h.runCommand) h.runCommand(args.value("command", 0)); out = "ok"; }
         else if (name == "project_root") { out = h.projectRoot ? h.projectRoot() : ""; }
         else if (name == "shell") { out = h.shell ? h.shell(args.value("cmd", std::string())) : ""; }
+        else if (name == "ask_user")
+        {
+            std::vector<AskQuestion> questions;
+            if (args.contains("questions") && args["questions"].is_array())
+                for (const Json &jq : args["questions"])
+                {
+                    if (!jq.is_object() || questions.size() >= 8)
+                        continue;
+                    AskQuestion q;
+                    q.prompt = jq.value("prompt", std::string());
+                    if (jq.contains("options") && jq["options"].is_array())
+                        for (const Json &opt : jq["options"])
+                            if (opt.is_string() && q.options.size() < 16)
+                                q.options.push_back(opt.get<std::string>());
+                    q.multiSelect = jq.value("multi_select", false);
+                    q.freeText = jq.value("free_text", false);
+                    if (!q.prompt.empty())
+                        questions.push_back(std::move(q));
+                }
+            if (questions.empty())
+            {
+                transport.send(connId, rpcResult(id,
+                    textContent("ask_user needs at least one question with a "
+                                "prompt", /*isError=*/true)).dump());
+                return;
+            }
+            if (!askUser)
+            {
+                transport.send(connId, rpcResult(id,
+                    textContent("ask_user: no UI available",
+                                /*isError=*/true)).dump());
+                return;
+            }
+            std::string who = clientNames.count(connId) &&
+                              !clientNames[connId].empty()
+                            ? clientNames[connId] : "agent";
+            std::vector<AskAnswer> answers;
+            bool finished = askUser(who, questions, answers);
+            Json resp;
+            resp["cancelled"] = !finished;
+            if (finished)
+            {
+                Json arr = Json::array();
+                for (size_t i = 0; i < questions.size(); ++i)
+                {
+                    Json a = {{"prompt", questions[i].prompt},
+                              {"selected", answers[i].selected},
+                              {"text", answers[i].text}};
+                    arr.push_back(std::move(a));
+                }
+                resp["answers"] = std::move(arr);
+            }
+            out = resp.dump();
+        }
         else
             handled = false;
 
@@ -330,7 +420,14 @@ std::string mcpSocketPath(const std::string &projectRoot) noexcept
     // path, fall back to a short name under $TMPDIR (the real path is written
     // into .mcp.json so the bridge still finds it).
     if (p.size() < 100)
+    {
+        // bind() needs the parent directory to exist; on a project that has
+        // never written .turbo (fresh checkout, first open) it doesn't, and
+        // the MCP server would silently fail to start.
+        std::error_code ec;
+        std::filesystem::create_directories(projectRoot + "/.turbo", ec);
         return p;
+    }
     std::hash<std::string> h;
     char name[64];
     std::snprintf(name, sizeof name, "/turboide-%zx.sock", (size_t) h(projectRoot));

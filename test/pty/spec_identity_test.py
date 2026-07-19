@@ -13,7 +13,8 @@ enforces (learned the hard way):
 
 Usage: python3 test/pty/spec_identity_test.py [path-to-turboIDE]
 """
-import fcntl, os, pty, re, select, struct, sys, termios, time, shutil, signal, tempfile
+import fcntl, json, os, pty, re, select, struct, subprocess, sys, termios, \
+       time, shutil, signal, tempfile
 
 def stripped(raw):
     """Remove escape sequences so text assertions see contiguous glyphs."""
@@ -205,6 +206,89 @@ check("mgr: review recorded in Decisions",
       "Reviewed by the user via the Spec Manager." in body3)
 check("mgr: override recorded (was draft)",
       "Override: status was 'draft'" in body3)
+
+# --- Session 4: ask_user via the real MCP bridge (a fake agent) -------------
+# The fake client launches the same `turboIDE mcp` bridge that .mcp.json
+# points coding agents at, and speaks newline-delimited JSON-RPC over it.
+
+def bridge_send(proc, obj):
+    proc.stdin.write((json.dumps(obj) + "\n").encode())
+    proc.stdin.flush()
+
+def bridge_read(proc, timeout=12):
+    r, _, _ = select.select([proc.stdout], [], [], timeout)
+    if not r:
+        return None
+    line = proc.stdout.readline()
+    return json.loads(line) if line else None
+
+ask = {}
+
+def actions_ask(send, drain):
+    deadline = time.time() + 10
+    while time.time() < deadline and not os.path.exists(PROJ + "/.mcp.json"):
+        drain(0.3)
+    cfg = json.load(open(PROJ + "/.mcp.json"))
+    srv = cfg["mcpServers"]["turboide"]
+    proc = subprocess.Popen([srv["command"]] + srv.get("args", []),
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL, cwd=PROJ)
+    try:
+        bridge_send(proc, {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                           "params": {"protocolVersion": "2024-11-05",
+                                      "clientInfo": {"name": "pty-fake-agent",
+                                                     "version": "1"},
+                                      "capabilities": {}}})
+        ask["init"] = bridge_read(proc)
+        bridge_send(proc, {"jsonrpc": "2.0",
+                           "method": "notifications/initialized"})
+        bridge_send(proc, {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                           "params": {"name": "ask_user", "arguments": {
+                               "questions": [
+                                   {"prompt": "Pick a colour",
+                                    "options": ["red", "green", "blue"]},
+                                   {"prompt": "Say something",
+                                    "free_text": True}]}}})
+        drain(2.5)                    # wizard page 1 appears
+        send(["\x1b[B"]); drain(0.5)  # Down: red -> green
+        send(["\r"]); drain(1.2)      # Next
+        send(list("hello")); drain(0.4)
+        send(["\r"]); drain(1.2)      # Finish
+        ask["call"] = bridge_read(proc)
+        bridge_send(proc, {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                           "params": {"name": "ask_user", "arguments": {
+                               "questions": [{"prompt": "Cancel me",
+                                              "free_text": True}]}}})
+        drain(2.0)
+        send(["\x1b"]); drain(1.2)    # Esc -> cancel
+        ask["cancel"] = bridge_read(proc)
+    finally:
+        try:
+            proc.stdin.close()
+        except OSError:
+            pass
+        proc.terminate()
+
+out4 = run_session({}, actions_ask, timeout=45)
+s4 = stripped(out4)
+
+def tool_text(resp):
+    try:
+        return json.loads(resp["result"]["content"][0]["text"])
+    except (KeyError, TypeError, IndexError, ValueError):
+        return {}
+
+data = tool_text(ask.get("call") or {})
+check("ask: wizard finished (not cancelled)", data.get("cancelled") is False)
+answers = data.get("answers") or []
+check("ask: radio answer is green",
+      bool(answers) and answers[0].get("selected") == ["green"])
+check("ask: free-text answer round-trips",
+      len(answers) > 1 and answers[1].get("text") == "hello")
+cancelled = tool_text(ask.get("cancel") or {})
+check("ask: cancel sentinel explicit", cancelled.get("cancelled") is True)
+check("ask: attribution line shown", "From: pty-fake-agent" in s4)
+check("ask: wizard pages numbered", "Agent Question (1/2)" in s4)
 
 print()
 fails = [n for n, ok in results if not ok]

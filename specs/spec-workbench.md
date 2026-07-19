@@ -504,6 +504,20 @@ Decided (proposed by this draft; overridable in review):
   mark-ready override into the review act. The header row uses the spec
   purple (`0x9D7CD8`) as its accent. The D20 gitignore warning moved to M7.
 
+- **D23 (2026-07-19):** M3 implementation notes. `ask_user` caps at 8
+  questions × 16 options (TCheckBoxes' selection mask is a 32-bit word;
+  well under it). The attribution name comes from the MCP `initialize`
+  `clientInfo` (now captured per connection), so the dialog reads "From:
+  claude" etc.; unnamed clients show "agent". The acceptance test speaks
+  newline-delimited JSON-RPC through the real `turboIDE mcp` bridge from
+  `.mcp.json` — the identical path a coding agent uses — proving D14 (any
+  MCP client can raise the wizard). Discovery, fixed in passing: the MCP
+  server silently failed to start on any project that had never created
+  `.turbo/` (bind on a socket path whose parent directory doesn't exist);
+  `mcpSocketPath` now creates the directory, and openProject re-runs the
+  `.turbo/.gitignore` retrofit afterwards. This had masked itself on
+  long-lived checkouts where `.turbo/` already existed.
+
 Open questions: none at present. Resolved questions live above as dated
 decisions; implementation may surface new ones (FR14).
 
@@ -521,7 +535,7 @@ decisions; implementation may surface new ones (FR14).
       filter/sort, Alt-P toggle, `cmSpecManager` palette + Lua. Agent row
       actions (Discuss/Draft/Implement) light up as M4–M6 land. Tests: scan
       + gate-predicate unit tests; PTY listing/filter/create.
-- [ ] **M3 — MCP `ask_user`.** Tool schema, wizard dialog (FieldInputLine,
+- [x] **M3 — MCP `ask_user`.** Tool schema, wizard dialog (FieldInputLine,
       Back/Next/Finish, cancel sentinel, attribution line), JSON round-trip
       tests, PTY test driving the wizard via a fake MCP client.
 - [ ] **M4 — Spec Workbench window.** Split view (editor left, existing
