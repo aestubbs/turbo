@@ -546,6 +546,16 @@ Decided (proposed by this draft; overridable in review):
   wording was compacted ("not reviewed", "dep 'x' is 'draft'") since the
   Manager's Status column already carries the state.
 
+- **D26 (2026-07-19):** M6 implementation notes. The gate is enforced in
+  `implementSpec` (a refusal dialog lists every blocker), not via
+  Turbo Vision's command-disable mechanism — that only covers command ids
+  ≤255 and the spec commands live in the ≥1000 range; the Manager's gate
+  line plus the refusal dialog carry FR20's "always shows which condition
+  is unmet" instead. The `implementing`/`implemented` status transitions
+  are the agent's duty under the brief's write-back contract (turbo does
+  not set them optimistically at launch — a launch that dies leaves the
+  spec's status truthful).
+
 Open questions: none at present. Resolved questions live above as dated
 decisions; implementation may surface new ones (FR14).
 
@@ -575,7 +585,7 @@ decisions; implementation may surface new ones (FR14).
       distil-don't-transcribe and no-secrets instructions; Draft prompt
       variant (FR18) wired to the Manager's Draft action; session transcript
       persistence under `.turbo/spec-sessions/`; scripted agent-loop test.
-- [ ] **M6 — Handoff.** `cmImplementSpec` + Manager Implement action:
+- [x] **M6 — Handoff.** `cmImplementSpec` + Manager Implement action:
       implementation gate (FR20 — reviewed, dependencies implemented, no
       open questions), agent selection from config, confirmation dialog,
       standard handoff prompt embedding the write-back contract (including

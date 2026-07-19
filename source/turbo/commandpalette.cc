@@ -52,6 +52,7 @@ const PaletteCommand kCommands[] =
     { "New Spec...",                   cmNewSpec,              "",             false },
     { "Spec Manager",                  cmSpecManager,          "Alt-P",        false },
     { "Spec Workbench",                cmSpecWorkbench,        "",             true  },
+    { "Implement Spec...",             cmImplementSpec,        "",             true  },
     // Navigation (new)
     { "Go to Anything...",             cmGotoAnything,         "Ctrl-P",       false },
     // Edit

@@ -348,6 +348,36 @@ s6 = stripped(out6)
 check("loop: agent-written text reloads into the open editor",
       "Distilled" in s6)
 
+# --- Session 7: Implement handoff, gate refusal then gated launch -----------
+setup()
+os.makedirs(PROJ + "/.turbo", exist_ok=True)
+with open(PROJ + "/.turbo/config.json", "w") as f:
+    json.dump({"agent": "/bin/cat"}, f)
+with open(PROJ + "/specs/ship-it.md", "w") as f:
+    f.write("---\ntitle: Ship It\nstatus: reviewed\nupdated: 2026-07-19\n"
+            "---\n\n# Objective\n\nShip.\n\n# Implementation Plan\n\n"
+            "- [ ] do it\n")
+
+def actions_implement(send, drain):
+    send(["\x1bp"]); drain(1.2)   # Spec Manager; ship-it focused (path sort)
+    send(["\x1b[B"]); drain(0.5)  # Down -> test-spec (draft)
+    send(["i"]); drain(1.2)       # Implement -> gate refusal box
+    send(["\r"]); drain(0.8)      # dismiss
+    send(["\x1b[A"]); drain(0.5)  # Up -> ship-it (reviewed, gate passes)
+    send(["i"]); drain(1.2)       # Implement -> launch confirmation
+    send(["\r"]); drain(2.5)      # Yes -> agent launches
+
+out7 = run_session({}, actions_implement)
+s7 = stripped(out7)
+check("impl: gate refusal names the blocker", "Cannot implement" in s7)
+check("impl: gated launch opens the implement agent",
+      "Spec Agent (/bin/cat" in s7 and "implement)" in s7)
+impl_brief = PROJ + "/.turbo/spec-sessions/ship-it-implement.md"
+check("impl: implement brief written", os.path.exists(impl_brief))
+if os.path.exists(impl_brief):
+    check("impl: brief carries the implement mission",
+          "Mission: implement" in open(impl_brief).read())
+
 print()
 fails = [n for n, ok in results if not ok]
 print(f"{len(results) - len(fails)}/{len(results)} passed")

@@ -188,6 +188,16 @@ void SpecListView::handleEvent(TEvent &ev)
             clearEvent(ev);
             return;
         }
+        if (ch == 'i')
+        {
+            // The gate itself is re-checked (and enforced) by the app; the
+            // Manager only offers the action.
+            if (const SpecInfo *s = mgr.focusedSpec())
+                if (mgr.onImplement)
+                    mgr.onImplement(s->path);
+            clearEvent(ev);
+            return;
+        }
         if (ch == 'r') { mgr.markReviewedFocused(); clearEvent(ev); return; }
         if (ch == 'f') { mgr.cycleStatusFilter();   clearEvent(ev); return; }
         if (ch == '/') { mgr.promptTextFilter();    clearEvent(ev); return; }
@@ -245,7 +255,7 @@ void SpecGateLine::draw()
         auto blockers = specGateBlockers(*s, mgr.specs);
         if (blockers.empty())
         {
-            text = "Gate: PASS - ready to implement";
+            text = "Gate: PASS";
             c = colors.pass;
         }
         else
@@ -271,7 +281,7 @@ void SpecGateLine::draw()
     }
     // The key legend anchors discoverability, so it always wins the space
     // fight; the gate text truncates to what remains.
-    std::string legend = "N new  W draft  D discuss  R review  F/ filter";
+    std::string legend = "N new W draft D discuss R review I impl F/ filter";
     int lx = size.x - (int) legend.size();
     if (lx > 8)
     {

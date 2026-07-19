@@ -217,6 +217,10 @@ struct TurboApp : public TApplication, EditorWindowParent
     // (interview pack + write-back contract) for Discuss/Draft/Implement.
     // Replaces any running agent window after user confirmation.
     void launchSpecAgent(const std::string &specPath, SpecAgentMode mode);
+    // The gated handoff (FR13/FR20): refuse with the blocker list unless the
+    // spec is reviewed, dependencies implemented, and no questions open.
+    void implementSpec(const std::string &specPath);
+    void implementSpecFocused(); // cmImplementSpec on the focused editor
     void treeCreateFolder(const std::string &dirPath);   // prompt + mkdir
     void treeRenamePath(const std::string &path, bool isDir); // prompt + rename
     void treeStagePath(const std::string &path);         // git add

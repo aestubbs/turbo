@@ -570,6 +570,7 @@ TMenuBar *TurboApp::makeMenuBar(TRect r, int recentCount, int toolCount)
             *new TMenuItem( "Auto ~I~ndent", cmToggleIndent, kbNoKey, hcNoContext ) +
             *new TMenuItem( "Spec ~M~anager", cmSpecManager, kbAltP, hcNoContext, "Alt-P" ) +
             *new TMenuItem( "Spec Wor~k~bench", cmSpecWorkbench, kbNoKey, hcNoContext ) +
+            *new TMenuItem( "Implement Spec...", cmImplementSpec, kbNoKey, hcNoContext ) +
             *new TMenuItem( "~H~idden Files", cmToggleHidden, kbNoKey, hcNoContext ) +
             *new TMenuItem( "Chan~g~e History", cmToggleChangeHistory, kbNoKey, hcNoContext ) +
             *new TMenuItem( "Long Line G~u~ide", cmToggleEdge, kbNoKey, hcNoContext ) +
@@ -861,6 +862,7 @@ void TurboApp::handleEvent(TEvent &event)
             case cmNewSpec: newSpec(); break;
             case cmSpecManager: toggleSpecManager(); break;
             case cmSpecWorkbench: specWorkbench(); break;
+            case cmImplementSpec: implementSpecFocused(); break;
             case cmThemeSettings: editThemeSettings(); break;
             case cmApplyTheme: applyActiveTheme(); break;
             case cmColorModeAuto: setColorMode("auto"); break;
@@ -3670,6 +3672,9 @@ void TurboApp::toggleSpecManager()
     specMgr->onDraft = [this] (const std::string &p) {
         launchSpecAgent(p, SpecAgentMode::Draft);
     };
+    specMgr->onImplement = [this] (const std::string &p) {
+        implementSpec(p);
+    };
     deskTop->insert(specMgr);
 }
 
@@ -3731,6 +3736,51 @@ void TurboApp::launchSpecAgent(const std::string &specPath, SpecAgentMode mode)
                                       specAgentModeName(mode) + ")",
                                   &agentWin);
     deskTop->insert(agentWin);
+}
+
+void TurboApp::implementSpec(const std::string &specPath)
+{
+    if (projectRoot.empty())
+        return;
+    // The implementation gate (FR20) is hard: reviewed, every dependency
+    // implemented, no open questions — no bypass.
+    auto specs = turbo::scanSpecsDir(projectRoot + "/specs");
+    const turbo::SpecInfo *me = nullptr;
+    for (const auto &s : specs)
+        if (s.path == specPath)
+        {
+            me = &s;
+            break;
+        }
+    if (!me)
+    {
+        messageBox(mfError | mfOKButton, "'%s' is not a spec under specs/.",
+                   specPath.c_str());
+        return;
+    }
+    auto blockers = turbo::specGateBlockers(*me, specs);
+    if (!blockers.empty())
+    {
+        std::string list;
+        for (const auto &b : blockers)
+            list += "\n- " + b;
+        std::string name {TPath::basename(specPath)};
+        messageBox(mfError | mfOKButton, "Cannot implement '%s':%s",
+                   name.c_str(), list.c_str());
+        return;
+    }
+    launchSpecAgent(specPath, SpecAgentMode::Implement);
+}
+
+void TurboApp::implementSpecFocused()
+{
+    EditorWindow *w = focusedEditor();
+    if (w && w->isSpec)
+        implementSpec(w->filePath());
+    else
+        messageBox(mfError | mfOKButton,
+                   "Focus a spec (a file under specs/) first, or use the "
+                   "Spec Manager's Implement action.");
 }
 
 void TurboApp::specWorkbench()
