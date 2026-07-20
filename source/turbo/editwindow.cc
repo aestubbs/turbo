@@ -592,12 +592,19 @@ constexpr TColorDesired
     cLuaBarThumb       = 0x6E5230, // scrollbar slider
     cLuaBarArrows      = 0xE8D4B0; // scrollbar arrows
 
-// Spec files (under <project-root>/specs/) render on a deep violet surface,
-// tuned to sit alongside the blue/gold palette: brighter when the window is
-// active, dimmer when passive. Text background only; frames stay standard.
+// Spec files (under <project-root>/specs/) are a single deep-violet surface
+// -- frame and text, like the Lua windows' brown (D29 revising D12) -- in
+// two shades: brighter active, dimmer passive. Icons stay gold, tying the
+// purple into the blue/gold palette.
 constexpr TColorDesired
-    cSpecBgActive  = 0x2A1B4D, // active: deep violet
-    cSpecBgPassive = 0x1F1838; // passive: darker, desaturated violet
+    cSpecBgActive       = 0x2A1B4D, // active: deep violet (editor + frame)
+    cSpecBgPassive      = 0x1F1838, // passive: darker, desaturated violet
+    cSpecFrameFgActive  = 0xE6DFF5, // active frame text / box lines
+    cSpecFrameFgPassive = 0xA79BC7, // passive frame text (dim lavender)
+    cSpecIcon           = 0xE8C07D, // frame icons (gold), on the active violet
+    cSpecBarTrough      = 0x1A1230, // scrollbar trough
+    cSpecBarThumb       = 0x5B4691, // scrollbar slider
+    cSpecBarArrows      = 0xCBB8F0; // scrollbar arrows
 } // namespace
 
 // Window-chrome scheme for Lua script windows: the active chrome with the frame
@@ -622,6 +629,39 @@ static const turbo::WindowColorScheme &luaBrownScheme() noexcept
     return brown;
 }
 
+// Window-chrome scheme for spec windows: the active chrome with frame and
+// scrollbars recoloured to the spec violet (magenta in classic 16-colour
+// mode, which has no purple). Rebuilt from windowSchemeActive each call so
+// it tracks theme edits for the entries it does not override.
+static const turbo::WindowColorScheme &specPurpleScheme() noexcept
+{
+    using namespace turbo;
+    static WindowColorScheme purple;
+    for (int i = 0; i < WindowPaletteItemCount; ++i)
+        purple[i] = windowSchemeActive[i];
+    if (::getBack(windowSchemeActive[wndFrameActive]).isBIOS())
+    {
+        ::setFore(purple[wndFramePassive], TColorDesired(uchar(0x7)));
+        ::setBack(purple[wndFramePassive], TColorDesired(uchar(0x5)));
+        ::setFore(purple[wndFrameActive], TColorDesired(uchar(0xF)));
+        ::setBack(purple[wndFrameActive], TColorDesired(uchar(0x5)));
+        ::setFore(purple[wndFrameIcon], TColorDesired(uchar(0xE)));
+        ::setBack(purple[wndFrameIcon], TColorDesired(uchar(0x5)));
+        return purple;
+    }
+    ::setFore(purple[wndFramePassive], cSpecFrameFgPassive);
+    ::setBack(purple[wndFramePassive], cSpecBgPassive);
+    ::setFore(purple[wndFrameActive], cSpecFrameFgActive);
+    ::setBack(purple[wndFrameActive], cSpecBgActive);
+    ::setFore(purple[wndFrameIcon], cSpecIcon);
+    ::setBack(purple[wndFrameIcon], cSpecBgActive);
+    ::setFore(purple[wndScrollBarPageArea], cSpecBarThumb);
+    ::setBack(purple[wndScrollBarPageArea], cSpecBarTrough);
+    ::setFore(purple[wndScrollBarControls], cSpecBarArrows);
+    ::setBack(purple[wndScrollBarControls], cSpecBarTrough);
+    return purple;
+}
+
 void EditorWindow::applyActiveStateTheme() noexcept
 {
     using namespace turbo;
@@ -636,7 +676,9 @@ void EditorWindow::applyActiveStateTheme() noexcept
     // configuration" windows. The frame/chrome comes from a brown window scheme;
     // the editor's text background is swapped to the matching shade.
     bool isLuaScript = ed.language == &Language::Lua;
-    setScheme(isLuaScript ? &luaBrownScheme() : nullptr);
+    setScheme(isLuaScript ? &luaBrownScheme()
+              : isSpec   ? &specPurpleScheme()
+                         : nullptr);
     TColorDesired bg;
     if (isLuaScript)
         bg = active ? cLuaBgActive : cLuaBgPassive;

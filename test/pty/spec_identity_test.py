@@ -175,6 +175,8 @@ if created:
 check("full: tree shows specs dir", "specs" in s1)
 # Spec files are tinted with the spec purple accent 0x9D7CD8 in the tree.
 check("full: spec file tinted in tree", has_sgr(out1, 38, 2, 157, 124, 216))
+# The frame is part of the purple surface (D29): active frame text 0xE6DFF5.
+check("full: purple frame chrome", has_sgr(out1, 38, 2, 230, 223, 245))
 
 # --- Session 2: classic 16-colour mode -------------------------------------
 def actions_classic(send, drain):

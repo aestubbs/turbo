@@ -236,8 +236,9 @@ Make turbo the best place to produce and maintain project specifications:
   BIOS mapping (`convertDirect`, `TVISION_COLORS` cap) must produce readable
   foregrounds on it (white/yellow text; avoid blue-on-magenta). The purple is
   chosen to sit alongside the classic blue/gold palette, with distinct
-  active/inactive variants (proposal in D12); window frames keep the normal
-  active/inactive treatment — only the text background is purple.
+  active/inactive variants; a spec window is one purple surface — frame,
+  icons, scrollbars, and text together (D29) — so it reads as a spec from
+  across the room, exactly as Lua windows read as brown.
 - **The document is primary.** The left pane is the artifact; the right pane
   is scaffolding. Answers are distilled into the document, not accumulated in
   chat. A user who never touches the conversation and just types into the
@@ -574,6 +575,17 @@ Decided (proposed by this draft; overridable in review):
   (14 spec-model + pre-existing). Status advanced implementing →
   implemented per the write-back contract this spec defined for its own
   kind.
+
+- **D29 (2026-07-20):** Frames are purple after all (revises D12's "frames
+  keep normal treatment"). The user's first live use surfaced it: a blue
+  frame around a purple document reads as an ordinary window holding odd
+  text, not as a spec. Spec windows now follow the Lua-brown precedent
+  exactly — one surface: frame fg/bg (active `#2A1B4D` / passive
+  `#1F1838`, lavender frame text), gold icons (tying into the blue/gold
+  palette), tinted scrollbars; classic 16-colour mode gets magenta chrome
+  with white/yellow accents (which the Lua scheme never handled — the
+  purple one does). The section strip inherits automatically via
+  `mapColor`.
 
 Open questions: none at present. Resolved questions live above as dated
 decisions; implementation may surface new ones (FR14).

@@ -17,9 +17,10 @@ user's act; implementation is gated (see below).
 
 ## Purple means spec
 
-Any file under `specs/` renders on a deep violet background (BIOS magenta in
-classic 16-colour mode) with active/inactive shades; the tree shows `specs/`
-and its files in the spec purple. A spec is always recognisably a spec.
+Any file under `specs/` renders as one deep-violet surface — frame, icons,
+scrollbars, and text (BIOS magenta in classic 16-colour mode) — with
+active/inactive shades; the tree shows `specs/` and its files in the spec
+purple. A spec is always recognisably a spec.
 
 ## The Spec Manager (Alt-P)
 
