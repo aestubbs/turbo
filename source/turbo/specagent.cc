@@ -1,7 +1,6 @@
 #include "specagent.h"
 
 #include <cstdlib>
-#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -217,36 +216,4 @@ std::string specAgentBrief(SpecAgentMode mode, const std::string &specPath,
     b += "\n";
     b += resolveSpecPack(domain, projectRoot);
     return b;
-}
-
-std::string writeSpecBrief(const std::string &projectRoot,
-                           const std::string &specStem,
-                           SpecAgentMode mode, const std::string &brief)
-{
-    if (projectRoot.empty())
-        return {};
-    std::error_code ec;
-    std::string dir = projectRoot + "/.turbo/spec-sessions";
-    std::filesystem::create_directories(dir, ec);
-    std::string path = dir + "/" + specStem + "-" +
-                       specAgentModeName(mode) + ".md";
-    std::ofstream f(path, std::ios::binary | std::ios::trunc);
-    if (!f)
-        return {};
-    f << brief;
-    return path;
-}
-
-std::string shellQuoteArg(const std::string &s)
-{
-    std::string out = "'";
-    for (char c : s)
-    {
-        if (c == '\'')
-            out += "'\\''";
-        else
-            out += c;
-    }
-    out += "'";
-    return out;
 }

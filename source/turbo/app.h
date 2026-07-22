@@ -224,16 +224,13 @@ struct TurboApp : public TApplication, EditorWindowParent
     void newSpec();
     // Show (or focus) the Spec Manager window. Alt-P / cmSpecManager.
     void toggleSpecManager();
-    // The Spec Workbench (FR4): section strip on the focused spec editor,
-    // agent window alongside, tiled spec-left / agent-right.
+    // The Spec Workbench (FR4): open (or focus) the docked Workbench on the
+    // focused spec editor -- the document with its section strip on the left,
+    // the agent conversation on the right, one window (spec-agent-integration).
     void specWorkbench();
     // Open (or focus) the Workbench on a spec and send the mode's brief.
     // All three modes -- Discuss, Draft, Implement -- run here now.
     void openSpecWorkbench(const std::string &specPath, SpecAgentMode mode);
-    // Launch the configured agent CLI in the agent window with a spec brief
-    // (interview pack + write-back contract) for Discuss/Draft/Implement.
-    // Replaces any running agent window after user confirmation.
-    void launchSpecAgent(const std::string &specPath, SpecAgentMode mode);
     // The gated handoff (FR13/FR20): refuse with the blocker list unless the
     // spec is reviewed, dependencies implemented, and no questions open.
     void implementSpec(const std::string &specPath);

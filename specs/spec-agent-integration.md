@@ -3,7 +3,7 @@ title: Spec Agent Integration — one window, one conversation
 status: implemented
 domain: ide-feature
 created: 2026-07-20
-updated: 2026-07-20
+updated: 2026-07-22
 depends: spec-workbench
 ---
 
@@ -417,6 +417,38 @@ storage, and no billing change.
   caught it, but a range-based edit that spans a function boundary is a
   landmine — the restored copy came from `git show HEAD:` rather than being
   retyped.
+
+- **D22 (2026-07-22):** FR7 (session resume) was specced and documented but
+  never actually wired -- surfaced by a later spec-vs-code review (the FR14
+  discovery loop). M1 built the mechanism (`specAgentArgv` appends `--resume`,
+  `SpecAgentSession::start` takes a resume id, and the id is captured from the
+  stream's init event) and even unit-tested the argv, but nothing ever stored
+  or replayed the id, so `sessionId()` had zero readers and every reopen
+  started a fresh conversation. Closed with a per-spec-path session-id map on
+  `TurboApp` (`rememberSpecSession`/`recallSpecSession`, on the
+  `EditorWindowParent` seam), captured live on `SessionStart`;
+  `openSpecWorkbench` passes the remembered id and **skips re-sending the
+  brief** on a resume, because `--resume` restores the conversation's context
+  and re-briefing would be noise. A PTY test asserts the close→reopen
+  round-trip delivers `--resume <captured id>`.
+
+- **D23 (2026-07-22):** FR1/M3's "draggable splitter" was drawn but inert:
+  `SpecPaneDivider` had only `draw()`, and the split was a fixed 48 columns.
+  Also closed from the same review. The divider now handles the mouse drag
+  with the standard `mouseEvent()` loop and re-splits through
+  `layoutAgentPane`, which already clamps so neither pane can be squeezed out.
+  `TGroup` routes the positional event to the divider via `firstThat(hasMouse)`
+  even though it is not selectable, so no focus change was needed. Verified by
+  an SGR mouse-drag PTY test (turbo enables `?1000h`/`?1002h`/`?1006h`;
+  asserting the move needs a reconstructed screen grid, since `squash()` loses
+  columns).
+
+- **D24 (2026-07-22):** The dead `launchSpecAgent` / `writeSpecBrief` /
+  `shellQuoteArg` that D20 deliberately left in place "so the diff stays
+  reviewable" are now deleted, per that decision's intent, once the structured
+  path (D14/D20) had fully replaced them and nothing else referenced them. No
+  behaviour change -- the brief travels only as the opening structured turn
+  (FR8) -- and `<filesystem>` went with `writeSpecBrief` as its sole user.
 
 Open questions: none at present. Implementation may surface new ones (FR14
 of `spec-workbench`).

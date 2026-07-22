@@ -3709,66 +3709,6 @@ void TurboApp::toggleSpecManager()
     warnIfSpecsIgnored(projectRoot, "specs");
 }
 
-void TurboApp::launchSpecAgent(const std::string &specPath, SpecAgentMode mode)
-{
-    if (projectRoot.empty())
-        return;
-    std::string cmd = resolveAgentCommand(buildConfig.agent, settings.defaultAgent);
-    if (cmd.empty())
-    {
-        messageBox("No coding agent is configured.", mfInformation | mfOKButton);
-        return;
-    }
-    // The command line comes only from agent config, never from spec content;
-    // the user confirms before anything runs (Security Considerations).
-    std::string specName {TPath::basename(specPath)};
-    if (messageBox(mfConfirmation | mfYesButton | mfNoButton,
-                   "Launch '%s' as the spec agent (%s) on '%s'?",
-                   cmd.c_str(), specAgentModeName(mode),
-                   specName.c_str()) != cmYes)
-        return;
-    std::string domain;
-    {
-        std::ifstream in(specPath, std::ios::binary);
-        if (in)
-        {
-            std::ostringstream ss;
-            ss << in.rdbuf();
-            domain = turbo::parseSpec(ss.str(), specPath).domain;
-        }
-    }
-    std::string stem = specName;
-    if (size_t dot = stem.find_last_of('.'); dot != std::string::npos && dot)
-        stem.resize(dot);
-    std::string brief = specAgentBrief(mode, specPath, domain, projectRoot);
-    std::string briefPath = writeSpecBrief(projectRoot, stem, mode, brief);
-    if (briefPath.empty())
-    {
-        messageBox(mfError | mfOKButton, "Cannot write the agent brief under "
-                                         ".turbo/spec-sessions/.");
-        return;
-    }
-    std::string prompt = "Read and follow the instructions in '" + briefPath +
-                         "'. The spec is '" + specPath + "'.";
-    std::string full = cmd + " " + shellQuoteArg(prompt);
-    if (agentWin)
-        agentWin->close(); // shutDown() nulls agentWin
-    TRect r = deskTop->getExtent();
-    if (docTree && (docTree->state & sfVisible))
-    {
-        TRect t = docTree->getBounds();
-        if (t.a.x > r.b.x - t.b.x)
-            r.b.x = max(t.a.x, 20);
-        else
-            r.a.x = min(t.b.x, r.b.x - 20);
-    }
-    agentWin = new TerminalWindow(r, full,
-                                  "Spec Agent (" + cmd + ", " +
-                                      specAgentModeName(mode) + ")",
-                                  &agentWin);
-    deskTop->insert(agentWin);
-}
-
 void TurboApp::implementSpec(const std::string &specPath)
 {
     if (projectRoot.empty())
