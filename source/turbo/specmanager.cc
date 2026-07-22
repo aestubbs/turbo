@@ -7,6 +7,7 @@
 #include <tvision/tv.h>
 
 #include "specmanager.h"
+#include "speccolors.h"
 
 #include <turbo/basicwindow.h>
 
@@ -43,18 +44,20 @@ struct RowColors
 RowColors rowColors(TGroup *owner) noexcept
 {
     bool active = owner && (owner->state & sfActive);
-    TColorDesired bg =
-        ::getBack(windowSchemeActive[active ? wndFrameActive : wndFramePassive]);
+    // The Manager is spec material, so it sits on the same violet surface as
+    // a spec editor and the Workbench -- content and frame together, which is
+    // the whole point of D29's "one surface" rule.
+    TColorDesired bg = turbo::specSurfaceBg(active);
     RowColors c;
-    if (bg.isBIOS())
+    if (turbo::specSurfaceIsBios())
     {
-        TColorDesired biosBg = bg;
-        c.normal     = TColorAttr {TColorDesired(uchar(0x7)), biosBg};
-        c.focusedRow = TColorAttr {TColorDesired(uchar(0x0)),
-                                   TColorDesired(uchar(0x3))};
-        c.headerFg   = TColorAttr {TColorDesired(uchar(0xD)), biosBg};
+        TColorDesired biosBg = bg; // magenta
+        c.normal     = TColorAttr {TColorDesired(uchar(0xF)), biosBg};
+        c.focusedRow = TColorAttr {TColorDesired(uchar(0x5)),
+                                   TColorDesired(uchar(0x7))};
+        c.headerFg   = TColorAttr {TColorDesired(uchar(0xE)), biosBg};
         c.blocked    = TColorAttr {TColorDesired(uchar(0xE)), biosBg};
-        c.pass       = TColorAttr {TColorDesired(uchar(0xA)), biosBg};
+        c.pass       = TColorAttr {TColorDesired(uchar(0xF)), biosBg};
         return c;
     }
     TColorRGB rgb = bg.asRGB();
@@ -62,9 +65,11 @@ RowColors rowColors(TGroup *owner) noexcept
         auto up = [d] (int ch) { return uchar(ch + d > 255 ? 255 : ch + d); };
         return TColorRGB(up(v.r), up(v.g), up(v.b));
     };
-    c.normal     = TColorAttr {TColorRGB(0xCBD6F2), bg};
+    c.normal     = TColorAttr {turbo::specBodyFg(), bg};
     c.focusedRow = TColorAttr {TColorRGB(0xFFFFFF), lighten(rgb, 26)};
-    c.headerFg   = TColorAttr {TColorRGB(0x9D7CD8), bg}; // the spec purple
+    // Gold on violet, matching the frame icons: a purple accent would vanish
+    // now that the ground itself is purple.
+    c.headerFg   = TColorAttr {turbo::specAccent(), bg};
     c.blocked    = TColorAttr {TColorRGB(0xEAC78A), bg};
     c.pass       = TColorAttr {TColorRGB(0x9CDC8C), bg};
     return c;
@@ -317,6 +322,15 @@ SpecManagerWindow::SpecManagerWindow(const TRect &bounds, std::string aSpecsDir,
     insert(list);
     list->select();
     refresh();
+}
+
+TColorAttr SpecManagerWindow::mapColor(uchar index) noexcept
+{
+    // Frame, icons and scrollbar come from the spec palette, so the chrome
+    // matches the content instead of staying Turbo blue around a violet table.
+    if (index > 0 && index - 1 < turbo::WindowPaletteItemCount)
+        return turbo::specPurpleScheme()[index - 1];
+    return errorAttr;
 }
 
 void SpecManagerWindow::shutDown()

@@ -1,6 +1,6 @@
 ---
 title: Spec Workbench — structured, agent-assisted specifications
-status: implemented
+status: pending
 domain: ide-feature
 created: 2026-07-19
 updated: 2026-07-19
@@ -103,7 +103,7 @@ Make turbo the best place to produce and maintain project specifications:
 ## Specs directory and visual identity
 
 - **FR1** — Any file under `<project-root>/specs/` (recursively) opened in an
-  editor renders with a deep purple background in full-colour mode, and a
+  editor renders with a deep purple background and border in full-colour mode, and a
   magenta background in classic 16-colour mode (deep purple has no BIOS
   equivalent; foreground colours must be re-picked for contrast). Markdown
   syntax highlighting still applies on top of the background.
@@ -118,13 +118,15 @@ Make turbo the best place to produce and maintain project specifications:
   Registered in the command palette and Lua-dispatchable (per project
   convention: every new `cmXxx` in `commandpalette.cc` kCommands and the Lua
   dispatcher).
+  **FR3.1** - Can open the spec manager from the rpoject view by right clicking on the specs folder in the tree.
 
 ## Spec Workbench window
 
 - **FR4** — `Open Spec Workbench` (`cmSpecWorkbench`) on a spec file opens a
   split window: left pane is the spec in a normal editor (full editing, save,
   undo); right pane is the spec-agent conversation stream. Reuses the existing
-  window/docking machinery.
+  window/docking machinery. **This is pending implementation** and test is agent built into the same window as the spec document. It is not sufficient to use claude code for this - instead important to configure an actual built in agent, that uses the turbo editing window, exposed as a tool to it so it is properly engages in an interactive process.
+  
 - **FR5** — The left pane is live: the user can click in and edit at any
   time. Agent-made changes to the file are picked up by the existing
   filewatcher and reflected immediately. The agent must re-read the document
@@ -586,6 +588,15 @@ Decided (proposed by this draft; overridable in review):
   with white/yellow accents (which the Lua scheme never handled — the
   purple one does). The section strip inherits automatically via
   `mapColor`.
+
+- **D30 (2026-07-20):** The purple identity now covers the Spec Manager as
+  well as spec editors — frame, scrollbar, rows and header all on the violet
+  surface, with the header accent moved from the spec purple to gold (a
+  purple accent is invisible on a purple ground). The palette moved to a
+  shared `source/turbo/speccolors.{h,cc}` so the editor, the Manager and the
+  Workbench cannot drift apart; D29's "one surface" rule is what this
+  extends. Superseded in scope by, and implemented alongside,
+  `specs/spec-agent-integration.md`.
 
 Open questions: none at present. Resolved questions live above as dated
 decisions; implementation may surface new ones (FR14).

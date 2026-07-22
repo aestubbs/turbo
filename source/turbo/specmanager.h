@@ -84,6 +84,8 @@ struct SpecManagerWindow : public TWindow
     void promptTextFilter();
 
     void shutDown() override;
+    // Chrome resolved through the shared spec palette (speccolors.h).
+    TColorAttr mapColor(uchar index) noexcept override;
     void setState(ushort aState, Boolean enable) override;
     void sizeLimits(TPoint &min, TPoint &max) override;
 };

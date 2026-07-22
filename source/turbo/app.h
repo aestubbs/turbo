@@ -11,6 +11,8 @@
 #include <vector>
 #include <fstream>
 #include <functional>
+#include <map>
+#include <string>
 
 #include <turbo/editstates.h>
 #include <turbo/filewatcher.h>
@@ -36,6 +38,7 @@ struct BranchView;
 struct TerminalView;
 struct TerminalWindow;
 struct SpecManagerWindow;
+struct AgentChatWindow;
 enum class SpecAgentMode;
 
 // A configured tool process, toggled on/off from the Run menu (e.g. `npm run
@@ -110,6 +113,17 @@ struct TurboApp : public TApplication, EditorWindowParent
     // The dedicated coding-agent window (a normal, freely-placeable terminal
     // window running the configured agent). Single instance; nulled on close.
     TerminalWindow *agentWin {nullptr};
+
+    // The structured agent conversation window (specs/spec-agent-integration.md
+    // M2): the same agent, driven headlessly over stream-json and rendered as
+    // typed events instead of a terminal. Single instance; nulled on close.
+    AgentChatWindow *agentChatWin {nullptr};
+
+    // Agent session ids captured from open Workbench panes, keyed by spec path
+    // (spec-agent-integration FR7). When a Workbench is reopened on a spec that
+    // has an entry here, its agent is relaunched with --resume so the
+    // conversation continues rather than starting over.
+    std::map<std::string, std::string> specSessions;
 
     // The Spec Manager (specs/spec-workbench.md FR16): the singleton window
     // listing every spec under <projectRoot>/specs. Nulled on close.
@@ -213,6 +227,9 @@ struct TurboApp : public TApplication, EditorWindowParent
     // The Spec Workbench (FR4): section strip on the focused spec editor,
     // agent window alongside, tiled spec-left / agent-right.
     void specWorkbench();
+    // Open (or focus) the Workbench on a spec and send the mode's brief.
+    // All three modes -- Discuss, Draft, Implement -- run here now.
+    void openSpecWorkbench(const std::string &specPath, SpecAgentMode mode);
     // Launch the configured agent CLI in the agent window with a spec brief
     // (interview pack + write-back contract) for Discuss/Draft/Implement.
     // Replaces any running agent window after user confirmation.
@@ -393,6 +410,12 @@ struct TurboApp : public TApplication, EditorWindowParent
     // resolved agent command in the project dir) or focuses the existing one;
     // selectAgent() picks the per-project agent; restartAgent() reopens it.
     void toggleAgent();
+    // Open (or focus) the structured agent conversation window.
+    void toggleAgentChat();
+    // Move focus between the Workbench's document and conversation panes.
+    void focusOtherWorkbenchPane();
+    // Move the document's cursor to the agent's most recent edit (FR11).
+    void jumpToAgentEdit();
     void selectAgent();
     void restartAgent();
 
@@ -409,6 +432,12 @@ struct TurboApp : public TApplication, EditorWindowParent
     void editorHoverStart(EditorWindow &w, long pos) noexcept override;
     void editorHoverEnd(EditorWindow &w) noexcept override;
     void editorToggleBreakpoint(EditorWindow &w, long line) noexcept override;
+    void rememberSpecSession(const std::string &specPath,
+                             const std::string &sessionId) noexcept override
+        { if (!sessionId.empty()) specSessions[specPath] = sessionId; }
+    std::string recallSpecSession(const std::string &specPath) noexcept override
+        { auto it = specSessions.find(specPath);
+          return it == specSessions.end() ? std::string {} : it->second; }
 };
 
 #endif

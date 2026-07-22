@@ -142,6 +142,9 @@ enum : ushort
     cmSpecManager,    // show/focus the Spec Manager window (Alt-P)
     cmSpecWorkbench,  // arrange the focused spec + agent side by side (FR4)
     cmImplementSpec,  // hand a gated spec to the coding agent (FR13/FR20)
+    cmAgentChat,      // structured agent conversation window (spec-agent-integration FR10)
+    cmFocusAgentPane, // move focus between the Workbench's two panes (FR5)
+    cmJumpToolTarget, // jump the document to the agent's last edit (FR11)
     // Recent-windows list in the Windows menu: cmWindowBase + i selects the
     // i-th most-recently-used editor window (i in [0, windowListMax)).
     cmWindowBase = 1100,

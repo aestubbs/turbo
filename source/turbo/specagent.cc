@@ -75,6 +75,28 @@ const char kContract[] = R"CONTRACT(## Write-back contract
 - Prefer the `ask_user` tool for decisions with enumerable options or
   short structured input (it opens a native dialog); keep open-ended
   discussion in the conversation.
+
+## Using the IDE, not just the filesystem
+
+You are running inside turbo, and the conversation you are in is rendered
+by the IDE -- tool calls appear as their own items the user can activate to
+jump to the part of the spec you touched. Two things follow:
+
+- **Ask through `ask_user`, not through prose.** Any question with
+  enumerable answers -- which of these approaches, which sections to add,
+  yes/no on a scope call, pick a name from a shortlist -- belongs in the
+  dialog, where it is a keyboard-operable wizard rather than a request to
+  type a number back at you. Reserve conversational questions for genuinely
+  open-ended discussion. Batch related questions into one `ask_user` call
+  (up to 8) instead of asking them one message at a time.
+- **Name the section you are working on.** When you edit the spec, make the
+  target section explicit in the tool call (its heading, or an explicit
+  line). The IDE uses that to take the user straight there, so a vague call
+  costs them the jump.
+
+Prefer turbo's own MCP tools (`file_text`, `insert_text`, `save`,
+`ask_user`) over shelling out: they act on the buffer the user is looking
+at, so edits appear immediately rather than after a reload.
 )CONTRACT";
 
 // A product-flavoured pack (D11): the default's discipline plus the

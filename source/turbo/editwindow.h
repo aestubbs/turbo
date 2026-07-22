@@ -8,6 +8,7 @@
 #include <turbo/fileeditor.h>
 #include <turbo/basicwindow.h>
 #include <turbo/basicframe.h>
+#include <turbo/agentconversation.h> // turbo::ConvItem (Workbench pane)
 #include "apputils.h"
 #include "editor.h"
 #include "search.h"
@@ -39,6 +40,8 @@ struct TitleState
                   windowNumber == other.windowNumber );
     }
 };
+
+struct SpecAgentPane;
 
 struct EditorWindow;
 
@@ -103,6 +106,14 @@ struct EditorWindowParent
     // Toggle a debugger breakpoint on document line 'line' (0-based). The app
     // owns the breakpoint model (DapManager) and updates the gutter marker.
     virtual void editorToggleBreakpoint(EditorWindow &w, long line) noexcept {}
+    // Record the agent session id a Workbench pane captured, keyed by the spec
+    // path, so reopening the Workbench can resume the conversation with
+    // --resume rather than starting over (spec-agent-integration FR7).
+    virtual void rememberSpecSession(const std::string &specPath,
+                                     const std::string &sessionId) noexcept {}
+    // The remembered session id for a spec, or empty if none.
+    virtual std::string recallSpecSession(const std::string &specPath) noexcept
+        { return {}; }
 };
 
 struct EditorWindow : public turbo::BasicEditorWindow
@@ -119,6 +130,8 @@ struct EditorWindow : public turbo::BasicEditorWindow
     TView *bottomView {nullptr};
     EditorConflictBar *conflictBar {nullptr};
     SpecSectionBar *specBar {nullptr};
+    // Non-null while the Workbench pane is docked (see specworkbench.h).
+    SpecAgentPane *agentPane {nullptr};
     SearchState searchState;
 
     // External-change detection: the modification time and size of filePath() on
@@ -143,6 +156,8 @@ struct EditorWindow : public turbo::BasicEditorWindow
     void shutDown() override;
     void handleEvent(TEvent &ev) override;
     void setState(ushort aState, Boolean enable) override;
+    // Re-applies the Workbench split; a no-op without an agent pane.
+    void changeBounds(const TRect &bounds) override;
     Boolean valid(ushort command) override;
     const char *getTitle(short = 0) override;
     void sizeLimits(TPoint &min, TPoint &max) override;
@@ -160,6 +175,32 @@ struct EditorWindow : public turbo::BasicEditorWindow
 
     // Show/hide the spec section-status strip (Workbench FR6). Idempotent.
     void setSpecSectionsMode(bool on) noexcept;
+
+    // The Spec Workbench's agent pane (specs/spec-agent-integration.md FR1):
+    // a live agent conversation docked into the right of this window, so the
+    // spec and its agent are one window rather than two placed side by side.
+    // Per-window, so several specs can be under discussion at once.
+    void setAgentPaneMode(bool on, const std::string &command = {},
+                          const std::string &cwd = {},
+                          const std::string &resumeSessionId = {}) noexcept;
+    bool hasAgentPane() const noexcept { return agentPane != nullptr; }
+    // Drain the pane's agent session; called from the app's idle loop.
+    void pumpAgentPane() noexcept;
+    // Move focus to the conversation ('toAgent') or back to the document.
+    // Scintilla owns Tab for indentation, so crossing out of the document
+    // needs its own command rather than a key the editor would swallow.
+    void focusAgentPane(bool toAgent) noexcept;
+    bool agentPaneHasFocus() const noexcept;
+    // FR11: move the document's cursor to what a tool call touched.
+    // jumpToToolTarget() uses the most recent such call (the keyboard
+    // path); jumpToToolItem() is the click path. Both return false when
+    // the call names no part of the document.
+    bool jumpToToolItem(const turbo::ConvItem &item) noexcept;
+    bool jumpToToolTarget() noexcept;
+    // Send one turn to the pane's agent (used to deliver the opening brief).
+    void sendToAgentPane(const std::string &text) noexcept;
+    // Re-apply the document/conversation split after a resize.
+    void layoutAgentPane() noexcept;
 
     void closeBottomView();
     void setBottomView(TView *view);

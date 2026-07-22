@@ -28,6 +28,46 @@ def has_sgr(raw, *nums):
     pat = ("[;:]".join(str(n) for n in nums)).encode()
     return re.search(rb"\x1b\[[0-9;:]*" + pat + rb"[0-9;:]*m", raw) is not None
 
+def colors_at(raw, needle, occurrence=-1):
+    """(fg, bg) in effect where 'needle' is written, as ('rgb',r,g,b) or
+    ('bios',n) or None.
+
+    Replaying the SGR state is the only way to assert what a *particular*
+    glyph run is painted with: a bare has_sgr() proves a colour appears
+    somewhere on screen, not that the frame is using it. That weaker check
+    is what let a blue active frame sit behind a purple body unnoticed.
+    """
+    occ = list(re.finditer(re.escape(needle), raw))
+    if not occ:
+        return (None, None)
+    end = occ[occurrence].start()
+    fg = bg = None
+    for m in re.finditer(rb"\x1b\[([0-9;:]*)m", raw[:end]):
+        parts = [int(p) for p in re.split(rb"[;:]", m.group(1)) if p != b""]
+        i = 0
+        while i < len(parts):
+            p = parts[i]
+            if p in (38, 48) and i + 1 < len(parts):
+                target = "fg" if p == 38 else "bg"
+                if parts[i + 1] == 2 and i + 4 < len(parts):
+                    val = ("rgb",) + tuple(parts[i + 2:i + 5]); i += 5
+                elif parts[i + 1] == 5 and i + 2 < len(parts):
+                    val = ("idx", parts[i + 2]); i += 3
+                else:
+                    i += 2; continue
+                if target == "fg": fg = val
+                else: bg = val
+                continue
+            if p == 0: fg = bg = None
+            elif 30 <= p <= 37: fg = ("bios", p - 30)
+            elif 90 <= p <= 97: fg = ("bios", p - 90 + 8)
+            elif p == 39: fg = None
+            elif 40 <= p <= 47: bg = ("bios", p - 40)
+            elif 100 <= p <= 107: bg = ("bios", p - 100 + 8)
+            elif p == 49: bg = None
+            i += 1
+    return (fg, bg)
+
 REPO = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 TURBO = os.path.realpath(sys.argv[1] if len(sys.argv) > 1
                          else os.path.join(REPO, "turboIDE"))
@@ -177,6 +217,12 @@ check("full: tree shows specs dir", "specs" in s1)
 check("full: spec file tinted in tree", has_sgr(out1, 38, 2, 157, 124, 216))
 # The frame is part of the purple surface (D29): active frame text 0xE6DFF5.
 check("full: purple frame chrome", has_sgr(out1, 38, 2, 230, 223, 245))
+# ...and the active frame really *is* the purple one -- assert the attributes
+# the title bar is painted with, not merely that the colour exists on screen.
+# A blue title bar over a purple body is the exact pre-D29 look.
+fg1, bg1 = colors_at(out1, b"test-spec.md")
+check("full: active frame bg is spec purple", bg1 == ("rgb", 42, 27, 77))
+check("full: active frame fg is lavender", fg1 == ("rgb", 230, 223, 245))
 
 # --- Session 2: classic 16-colour mode -------------------------------------
 def actions_classic(send, drain):
@@ -184,10 +230,26 @@ def actions_classic(send, drain):
     send(list("test-spec")); drain(0.5)
     send(["\r"]); drain(1.5)
 
-out2 = run_session({"TVISION_COLORS": "16"}, actions_classic)
+# Classic mode is the *setting* theme.colors=16, not TVISION_COLORS: the env
+# var only caps Turbo Vision's output depth (turbo sets it itself from the
+# setting), so capping alone leaves the RGB schemes active and the violet is
+# merely downconverted -- to blue, which is exactly what the purple is meant
+# to be distinguishable from. Drive it through a throwaway HOME/.turborc.
+CLASSIC_HOME = os.path.realpath(tempfile.mkdtemp(prefix="turbo-spec-home-"))
+with open(CLASSIC_HOME + "/.turborc", "w") as f:
+    f.write("theme.colors=16\n")
+
+out2 = run_session({"HOME": CLASSIC_HOME}, actions_classic)
 # BIOS magenta background renders as SGR 45 (bg magenta) in 16-colour output.
 check("classic: magenta bg escape present", has_sgr(out2, 45))
 check("classic: no RGB purple leaks", not has_sgr(out2, 48, 2, 42, 27, 77))
+# The 16-colour branch of specPurpleScheme()/applyActiveStateTheme: magenta
+# chrome and body, not the default blue.
+fg2, bg2 = colors_at(out2, b"test-spec.md")
+check("classic: active frame bg is magenta", bg2 == ("bios", 5))
+_, bodybg2 = colors_at(out2, b"background text for rendering")
+check("classic: spec body bg is magenta", bodybg2 == ("bios", 5))
+shutil.rmtree(CLASSIC_HOME, ignore_errors=True)
 
 # --- Session 3: Spec Manager (Alt-P) ---------------------------------------
 setup()  # reset the fixture so test-spec is the only (and focused) row
@@ -201,6 +263,16 @@ out3 = run_session({}, actions_manager)
 s3 = stripped(out3)
 check("mgr: column headers shown",
       all(h in s3 for h in ("Title", "Status", "Domain", "Updated", "Plan")))
+# The Manager is spec material, so it sits on the same violet surface as a
+# spec editor -- chrome and content together, not a blue frame around a
+# purple table (D29's "one surface" rule, extended to the Manager).
+fg_mgr, bg_mgr = colors_at(out3, b"Specs")       # the window's frame title
+check("mgr: frame is the spec violet", bg_mgr == ("rgb", 42, 27, 77))
+check("mgr: frame text is lavender", fg_mgr == ("rgb", 230, 223, 245))
+fg_hdr, bg_hdr = colors_at(out3, b"Title")       # the column-header row
+check("mgr: header sits on the violet surface", bg_hdr == ("rgb", 42, 27, 77))
+# Gold, not purple: a purple accent would vanish on a purple ground.
+check("mgr: header accent is gold", fg_hdr == ("rgb", 232, 192, 125))
 check("mgr: spec row shown with title", "Test Spec" in s3)
 check("mgr: gate line shows blocked reason", "Blocked: not reviewed" in s3)
 check("mgr: key legend shown", "R review" in s3)
@@ -294,13 +366,43 @@ check("ask: cancel sentinel explicit", cancelled.get("cancelled") is True)
 check("ask: attribution line shown", "From: pty-fake-agent" in s4)
 check("ask: wizard pages numbered", "Agent Question (1/2)" in s4)
 
-# --- Session 5: Spec Workbench (strip + agent tiled alongside) --------------
+# --- Session 5: Spec Workbench (strip + docked conversation pane) -----------
+# The Workbench is now ONE window -- document left, conversation right (M3 of
+# specs/spec-agent-integration.md) -- rather than two windows placed side by
+# side, and the interview brief travels as a structured turn instead of a
+# brief file named on the command line.
 setup()
 os.makedirs(PROJ + "/.turbo", exist_ok=True)
-# A harmless stand-in agent: /bin/cat just sits on its pty. The test must
-# never launch a real agent CLI.
+# A scripted stand-in speaking the stream-json protocol. The test must never
+# launch a real agent CLI. (/bin/cat was the old stand-in and cannot serve
+# here: with stdout on a pipe it block-buffers at 4096 bytes, and the brief is
+# just under that, so it never flushes.) It records what it receives so the
+# brief's *content* can still be asserted now that no brief file is written.
+SPY_AGENT = '''#!/usr/bin/env python3
+import sys, json
+log = open(sys.argv[1], "w")
+def emit(o):
+    sys.stdout.write(json.dumps(o) + "\\n"); sys.stdout.flush()
+emit({"type": "system", "subtype": "init",
+      "session_id": "spy-session", "model": "spy-model"})
+for line in sys.stdin:
+    log.write(line); log.flush()
+    try:
+        json.loads(line)["message"]["content"][0]["text"]
+    except Exception:
+        continue
+    emit({"type": "assistant",
+          "message": {"content": [{"type": "text", "text": "AGENTREPLIED"}]}})
+    emit({"type": "result", "subtype": "success", "is_error": False,
+          "result": "AGENTREPLIED"})
+'''
+spy_path = PROJ + "/spy_agent.py"
+spy_log = PROJ + "/spy.log"
+with open(spy_path, "w") as f:
+    f.write(SPY_AGENT)
+os.chmod(spy_path, 0o755)
 with open(PROJ + "/.turbo/config.json", "w") as f:
-    json.dump({"agent": "/bin/cat"}, f)
+    json.dump({"agent": spy_path + " " + spy_log}, f)
 
 def actions_workbench(send, drain):
     send(["\x10"]); drain(0.6)
@@ -317,12 +419,25 @@ s5 = stripped(out5)
 # Objective".
 check("wb: section strip counts", "Sections 2/3 drafted" in s5)
 check("wb: strip names the empty section", "empty: Objective" in s5)
-check("wb: spec agent window opened alongside", "Spec Agent (/bin/cat" in s5)
 check("wb: spec text still visible", "background text for rendering" in s5)
+# One window, two panes: no separate "Spec Agent (...)" terminal window is
+# opened any more, and the conversation lives inside the spec's own window.
+check("wb: no separate agent window", "Spec Agent (" not in s5)
+check("wb: conversation docked in the same window", "AGENTREPLIED" in s5)
+# The brief now travels over the structured channel (FR8), so there is no
+# brief file and no shell quoting -- but its content must still be right.
 brief_path = PROJ + "/.turbo/spec-sessions/test-spec-discuss.md"
-check("wb: interview brief written", os.path.exists(brief_path))
-if os.path.exists(brief_path):
-    brief = open(brief_path).read()
+check("wb: no brief file written for Discuss", not os.path.exists(brief_path))
+check("wb: interview brief delivered to the agent", os.path.exists(spy_log))
+if os.path.exists(spy_log):
+    received = open(spy_log).read()
+    brief = ""
+    try:
+        brief = json.loads(received.splitlines()[0])["message"]["content"][0]["text"]
+    except Exception:
+        pass
+    # The prompt arrives as ONE intact argument-free turn, not split into
+    # argv fragments the way the old shell-quoted command line did.
     check("wb: brief carries the rubric", "Readiness rubric" in brief)
     check("wb: brief carries the contract", "Write-back contract" in brief)
     check("wb: brief names the spec", PROJ + "/specs/test-spec.md" in brief)
@@ -355,8 +470,12 @@ check("loop: agent-written text reloads into the open editor",
 # --- Session 7: Implement handoff, gate refusal then gated launch -----------
 setup()
 os.makedirs(PROJ + "/.turbo", exist_ok=True)
+impl_log = PROJ + "/impl.log"
+with open(spy_path, "w") as f:      # same scripted stand-in as session 5
+    f.write(SPY_AGENT)
+os.chmod(spy_path, 0o755)
 with open(PROJ + "/.turbo/config.json", "w") as f:
-    json.dump({"agent": "/bin/cat"}, f)
+    json.dump({"agent": spy_path + " " + impl_log}, f)
 with open(PROJ + "/specs/ship-it.md", "w") as f:
     f.write("---\ntitle: Ship It\nstatus: reviewed\nupdated: 2026-07-19\n"
             "---\n\n# Objective\n\nShip.\n\n# Implementation Plan\n\n"
@@ -374,13 +493,24 @@ def actions_implement(send, drain):
 out7 = run_session({}, actions_implement)
 s7 = stripped(out7)
 check("impl: gate refusal names the blocker", "Cannot implement" in s7)
-check("impl: gated launch opens the implement agent",
-      "Spec Agent (/bin/cat" in s7 and "implement)" in s7)
+# The gated launch now opens the Workbench on the spec rather than a
+# separate terminal window -- all three modes share one path (M4).
+check("impl: gated launch opens the workbench, not a terminal",
+      "Spec Agent (" not in s7)
+check("impl: implement conversation is live", "AGENTREPLIED" in s7)
 impl_brief = PROJ + "/.turbo/spec-sessions/ship-it-implement.md"
-check("impl: implement brief written", os.path.exists(impl_brief))
-if os.path.exists(impl_brief):
-    check("impl: brief carries the implement mission",
-          "Mission: implement" in open(impl_brief).read())
+check("impl: no brief file written", not os.path.exists(impl_brief))
+check("impl: implement brief delivered to the agent", os.path.exists(impl_log))
+if os.path.exists(impl_log):
+    got = ""
+    try:
+        got = json.loads(open(impl_log).read().splitlines()[0])
+        got = got["message"]["content"][0]["text"]
+    except Exception:
+        pass
+    check("impl: brief carries the implement mission", "Mission: implement" in got)
+    check("impl: brief carries the write-back contract",
+          "Write-back contract" in got)
 
 # --- Session 8: D20 — warn when specs/ is gitignored ------------------------
 setup()

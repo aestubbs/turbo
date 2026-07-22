@@ -14,6 +14,8 @@
 #include <turbo/editstates.h>
 #include <turbo/specmodel.h>
 #include "editwindow.h"
+#include "speccolors.h"
+#include "specworkbench.h"
 #include "app.h"
 #include "apputils.h"
 #include "cmds.h"
@@ -358,6 +360,10 @@ EditorWindow::EditorWindow( const TRect &bounds, TurboEditor &aEditor,
 void EditorWindow::shutDown()
 {
     parent.removeEditor(*this);
+    // Stops the agent child and joins its reader thread before the subviews
+    // (which the pane's callbacks touch) are torn down.
+    if (agentPane)
+        setAgentPaneMode(false);
     bottomView = nullptr;
     super::shutDown();
 }
@@ -393,6 +399,32 @@ void EditorWindow::handleEvent(TEvent &ev)
             }
             switch (ev.keyDown.keyCode)
             {
+                // Cross into the Workbench conversation. This must be handled
+                // here, not by a status-line binding: EditorView::handleEvent
+                // calls clearEvent() on every keystroke, so no key escapes the
+                // document once it has focus. EditorWindow sees events first,
+                // which is why this works where a global binding cannot.
+                case kbAltRight:
+                    if (agentPane)
+                        focusAgentPane(true);
+                    else
+                        handled = false;
+                    break;
+                case kbAltLeft:
+                    if (agentPane)
+                        focusAgentPane(false);
+                    else
+                        handled = false;
+                    break;
+                // FR11's keyboard path. Same reason as Alt-Right: the editor
+                // view clears every keystroke, so this cannot be a global
+                // binding.
+                case kbAltJ:
+                    if (agentPane)
+                        jumpToToolTarget();
+                    else
+                        handled = false;
+                    break;
                 case kbEsc:
                     if (bottomView)
                         closeBottomView();
@@ -592,19 +624,6 @@ constexpr TColorDesired
     cLuaBarThumb       = 0x6E5230, // scrollbar slider
     cLuaBarArrows      = 0xE8D4B0; // scrollbar arrows
 
-// Spec files (under <project-root>/specs/) are a single deep-violet surface
-// -- frame and text, like the Lua windows' brown (D29 revising D12) -- in
-// two shades: brighter active, dimmer passive. Icons stay gold, tying the
-// purple into the blue/gold palette.
-constexpr TColorDesired
-    cSpecBgActive       = 0x2A1B4D, // active: deep violet (editor + frame)
-    cSpecBgPassive      = 0x1F1838, // passive: darker, desaturated violet
-    cSpecFrameFgActive  = 0xE6DFF5, // active frame text / box lines
-    cSpecFrameFgPassive = 0xA79BC7, // passive frame text (dim lavender)
-    cSpecIcon           = 0xE8C07D, // frame icons (gold), on the active violet
-    cSpecBarTrough      = 0x1A1230, // scrollbar trough
-    cSpecBarThumb       = 0x5B4691, // scrollbar slider
-    cSpecBarArrows      = 0xCBB8F0; // scrollbar arrows
 } // namespace
 
 // Window-chrome scheme for Lua script windows: the active chrome with the frame
@@ -629,39 +648,6 @@ static const turbo::WindowColorScheme &luaBrownScheme() noexcept
     return brown;
 }
 
-// Window-chrome scheme for spec windows: the active chrome with frame and
-// scrollbars recoloured to the spec violet (magenta in classic 16-colour
-// mode, which has no purple). Rebuilt from windowSchemeActive each call so
-// it tracks theme edits for the entries it does not override.
-static const turbo::WindowColorScheme &specPurpleScheme() noexcept
-{
-    using namespace turbo;
-    static WindowColorScheme purple;
-    for (int i = 0; i < WindowPaletteItemCount; ++i)
-        purple[i] = windowSchemeActive[i];
-    if (::getBack(windowSchemeActive[wndFrameActive]).isBIOS())
-    {
-        ::setFore(purple[wndFramePassive], TColorDesired(uchar(0x7)));
-        ::setBack(purple[wndFramePassive], TColorDesired(uchar(0x5)));
-        ::setFore(purple[wndFrameActive], TColorDesired(uchar(0xF)));
-        ::setBack(purple[wndFrameActive], TColorDesired(uchar(0x5)));
-        ::setFore(purple[wndFrameIcon], TColorDesired(uchar(0xE)));
-        ::setBack(purple[wndFrameIcon], TColorDesired(uchar(0x5)));
-        return purple;
-    }
-    ::setFore(purple[wndFramePassive], cSpecFrameFgPassive);
-    ::setBack(purple[wndFramePassive], cSpecBgPassive);
-    ::setFore(purple[wndFrameActive], cSpecFrameFgActive);
-    ::setBack(purple[wndFrameActive], cSpecBgActive);
-    ::setFore(purple[wndFrameIcon], cSpecIcon);
-    ::setBack(purple[wndFrameIcon], cSpecBgActive);
-    ::setFore(purple[wndScrollBarPageArea], cSpecBarThumb);
-    ::setBack(purple[wndScrollBarPageArea], cSpecBarTrough);
-    ::setFore(purple[wndScrollBarControls], cSpecBarArrows);
-    ::setBack(purple[wndScrollBarControls], cSpecBarTrough);
-    return purple;
-}
-
 void EditorWindow::applyActiveStateTheme() noexcept
 {
     using namespace turbo;
@@ -677,22 +663,15 @@ void EditorWindow::applyActiveStateTheme() noexcept
     // the editor's text background is swapped to the matching shade.
     bool isLuaScript = ed.language == &Language::Lua;
     setScheme(isLuaScript ? &luaBrownScheme()
-              : isSpec   ? &specPurpleScheme()
+              : isSpec   ? &turbo::specPurpleScheme()
                          : nullptr);
     TColorDesired bg;
     if (isLuaScript)
         bg = active ? cLuaBgActive : cLuaBgPassive;
     else if (isSpec)
-    {
-        // Specs render on a deep purple surface so a spec is always
-        // recognisably a spec; frames keep their normal treatment. Classic
-        // 16-colour mode has no purple, so fall back to BIOS magenta there.
-        TColorDesired frameBg = ::getBack(windowSchemeActive[wndFrameActive]);
-        if (frameBg.isBIOS())
-            bg = TColorDesired(uchar(0x5)); // BIOS magenta
-        else
-            bg = active ? cSpecBgActive : cSpecBgPassive;
-    }
+        // One violet surface, frame and text together (D29); the shared
+        // palette also drives the Spec Manager and the Workbench container.
+        bg = turbo::specSurfaceBg(active);
     else
         bg = ::getBack(windowSchemeActive[active ? wndFrameActive : wndFramePassive]);
     ColorScheme s;

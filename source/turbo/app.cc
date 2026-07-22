@@ -48,6 +48,7 @@
 #include "builddialog.h"
 #include "specdialog.h"
 #include "specmanager.h"
+#include "agentconversationview.h"
 #include "specagent.h"
 #include "askdialog.h"
 #include <turbo/specmodel.h>
@@ -571,7 +572,10 @@ TMenuBar *TurboApp::makeMenuBar(TRect r, int recentCount, int toolCount)
             *new TMenuItem( "Auto ~I~ndent", cmToggleIndent, kbNoKey, hcNoContext ) +
             *new TMenuItem( "Spec ~M~anager", cmSpecManager, kbAltP, hcNoContext, "Alt-P" ) +
             *new TMenuItem( "Spec Wor~k~bench", cmSpecWorkbench, kbNoKey, hcNoContext ) +
+            *new TMenuItem( "Focus Other ~P~ane", cmFocusAgentPane, kbAltRight, hcNoContext, "Alt-Right" ) +
+            *new TMenuItem( "~J~ump to Agent's Last Edit", cmJumpToolTarget, kbAltJ, hcNoContext, "Alt-J" ) +
             *new TMenuItem( "Implement Spec...", cmImplementSpec, kbNoKey, hcNoContext ) +
+            *new TMenuItem( "Agent Con~v~ersation", cmAgentChat, kbNoKey, hcNoContext ) +
             *new TMenuItem( "~H~idden Files", cmToggleHidden, kbNoKey, hcNoContext ) +
             *new TMenuItem( "Chan~g~e History", cmToggleChangeHistory, kbNoKey, hcNoContext ) +
             *new TMenuItem( "Long Line G~u~ide", cmToggleEdge, kbNoKey, hcNoContext ) +
@@ -750,6 +754,13 @@ void TurboApp::idle()
         dap->pump();
     if (mcp)
         mcp->pump();
+    if (agentChatWin)
+        agentChatWin->pump();
+    // Workbench panes: one agent session per spec window (FR3).
+    MRUlist.forEach([] (EditorWindow *w) {
+        if (w && w->hasAgentPane())
+            w->pumpAgentPane();
+    });
     if (watcher)
         onFilesChanged();
     if (git)
@@ -864,6 +875,9 @@ void TurboApp::handleEvent(TEvent &event)
             case cmSpecManager: toggleSpecManager(); break;
             case cmSpecWorkbench: specWorkbench(); break;
             case cmImplementSpec: implementSpecFocused(); break;
+            case cmAgentChat: toggleAgentChat(); break;
+            case cmFocusAgentPane: focusOtherWorkbenchPane(); break;
+            case cmJumpToolTarget: jumpToAgentEdit(); break;
             case cmThemeSettings: editThemeSettings(); break;
             case cmApplyTheme: applyActiveTheme(); break;
             case cmColorModeAuto: setColorMode("auto"); break;
@@ -3683,12 +3697,10 @@ void TurboApp::toggleSpecManager()
     specMgr->onOpen = [this] (const std::string &p) { openOrFocus(p); };
     specMgr->onNewSpec = [this] { newSpec(); };
     specMgr->onDiscuss = [this] (const std::string &p) {
-        openOrFocus(p);
-        launchSpecAgent(p, SpecAgentMode::Discuss);
-        specWorkbench();
+        openSpecWorkbench(p, SpecAgentMode::Discuss);
     };
     specMgr->onDraft = [this] (const std::string &p) {
-        launchSpecAgent(p, SpecAgentMode::Draft);
+        openSpecWorkbench(p, SpecAgentMode::Draft);
     };
     specMgr->onImplement = [this] (const std::string &p) {
         implementSpec(p);
@@ -3788,7 +3800,7 @@ void TurboApp::implementSpec(const std::string &specPath)
                    name.c_str(), list.c_str());
         return;
     }
-    launchSpecAgent(specPath, SpecAgentMode::Implement);
+    openSpecWorkbench(specPath, SpecAgentMode::Implement);
 }
 
 void TurboApp::implementSpecFocused()
@@ -3802,6 +3814,79 @@ void TurboApp::implementSpecFocused()
                    "Spec Manager's Implement action.");
 }
 
+void TurboApp::openSpecWorkbench(const std::string &specPath,
+                                 SpecAgentMode mode)
+{
+    if (projectRoot.empty() || specPath.empty())
+        return;
+    openOrFocus(specPath);
+    EditorWindow *w = focusedEditor();
+    if (!w || !w->isSpec)
+    {
+        messageBox(mfError | mfOKButton, "'%s' is not a spec under specs/.",
+                   specPath.c_str());
+        return;
+    }
+    w->setSpecSectionsMode(true); // FR6: the per-section status strip
+
+    bool resumed = false;
+    if (w->hasAgentPane())
+    {
+        // FR2: one window per spec. An existing conversation is not replaced
+        // -- the new mission is sent into it, so context is kept.
+        w->select();
+        w->focusAgentPane(true);
+    }
+    else
+    {
+        std::string cmd = resolveAgentCommand(buildConfig.agent, settings.defaultAgent);
+        if (cmd.empty())
+        {
+            messageBox("No coding agent is configured.", mfInformation | mfOKButton);
+            return;
+        }
+        // FR7: if this spec already had a Workbench conversation this session,
+        // resume it rather than starting fresh. Key off the editor's own path
+        // so it matches whatever rememberSpecSession stored.
+        std::string resumeId = recallSpecSession(std::string(w->filePath()));
+        // Every agent launch is confirmed before the process starts; the
+        // command line comes only from agent config, never from spec content.
+        std::string specName {TPath::basename(specPath)};
+        if (messageBox(mfConfirmation | mfYesButton | mfNoButton,
+                       resumeId.empty()
+                           ? "Open the Spec Workbench on '%s' (%s) with '%s'?"
+                           : "Resume the Spec Workbench on '%s' (%s) with '%s'?",
+                       specName.c_str(), specAgentModeName(mode),
+                       cmd.c_str()) != cmYes)
+            return;
+        w->setAgentPaneMode(true, cmd, projectRoot, resumeId);
+        if (!w->hasAgentPane())
+            return;
+        resumed = !resumeId.empty();
+    }
+
+    // The brief goes over the structured channel as a turn (FR8) -- no brief
+    // file, no shell quoting, and the same path for all three modes. A resumed
+    // conversation already holds the brief (its context was restored via
+    // --resume), so re-sending the whole pack would be noise -- skip it and
+    // let the conversation continue where it left off.
+    if (!resumed)
+    {
+        std::string domain;
+        {
+            std::ifstream in(specPath, std::ios::binary);
+            if (in)
+            {
+                std::ostringstream ss;
+                ss << in.rdbuf();
+                domain = turbo::parseSpec(ss.str(), specPath).domain;
+            }
+        }
+        w->sendToAgentPane(specAgentBrief(mode, specPath, domain, projectRoot));
+    }
+    w->select();
+}
+
 void TurboApp::specWorkbench()
 {
     EditorWindow *w = focusedEditor();
@@ -3812,33 +3897,40 @@ void TurboApp::specWorkbench()
                    "Spec Manager's Discuss action.");
         return;
     }
-    w->setSpecSectionsMode(true); // FR6: the per-section status strip
-    if (!agentWin)
-        // No agent running: bring up the spec agent briefed for the
-        // interview. A running agent (e.g. just launched by Discuss, or a
-        // conversation in progress) is left untouched.
-        launchSpecAgent(w->filePath(), SpecAgentMode::Discuss);
-    // Tile over the editor area, keeping a visible tree: spec left (the
-    // document is primary), agent right — the "split" is deliberate
-    // placement of the two existing windows (D9).
-    TRect r = deskTop->getExtent();
-    if (docTree && (docTree->state & sfVisible))
+    if (w->hasAgentPane())
     {
-        TRect t = docTree->getBounds();
-        if (t.a.x > r.b.x - t.b.x)
-            r.b.x = max(t.a.x, 20);
-        else
-            r.a.x = min(t.b.x, r.b.x - 20);
+        w->select(); // already open: just focus it (FR2)
+        return;
     }
-    int mid = (r.a.x + r.b.x) / 2;
-    if (agentWin)
+    openSpecWorkbench(w->filePath(), SpecAgentMode::Discuss);
+}
+
+void TurboApp::jumpToAgentEdit()
+{
+    EditorWindow *w = focusedEditor();
+    if (!w || !w->hasAgentPane())
     {
-        TRect right(mid, r.a.y, r.b.x, r.b.y);
-        agentWin->locate(right);
+        messageBox("This window has no Workbench conversation pane. Use "
+                   "Spec Workbench on a spec first.", mfInformation | mfOKButton);
+        return;
     }
-    TRect left(r.a.x, r.a.y, agentWin ? mid : r.b.x, r.b.y);
-    w->locate(left);
-    w->select();
+    if (!w->jumpToToolTarget())
+        messageBox("The agent has not edited a part of this spec yet.",
+                   mfInformation | mfOKButton);
+}
+
+void TurboApp::focusOtherWorkbenchPane()
+{
+    EditorWindow *w = focusedEditor();
+    if (!w || !w->hasAgentPane())
+    {
+        messageBox("This window has no Workbench conversation pane. Use "
+                   "Spec Workbench on a spec first.", mfInformation | mfOKButton);
+        return;
+    }
+    // Toggle: the document owns Tab (Scintilla indents with it), so crossing
+    // panes is a command rather than a key the editor would swallow.
+    w->focusAgentPane(!w->agentPaneHasFocus());
 }
 
 void TurboApp::toggleAgent()
@@ -3869,6 +3961,38 @@ void TurboApp::toggleAgent()
     }
     agentWin = new TerminalWindow(r, cmd, "Agent (" + cmd + ")", &agentWin);
     deskTop->insert(agentWin);
+}
+
+void TurboApp::toggleAgentChat()
+{
+    if (agentChatWin)
+    {
+        agentChatWin->focus();
+        return;
+    }
+    std::string cmd = resolveAgentCommand(buildConfig.agent, settings.defaultAgent);
+    if (cmd.empty())
+    {
+        messageBox("No coding agent is configured.", mfInformation | mfOKButton);
+        return;
+    }
+    // Every agent launch is confirmed by the user before the process starts
+    // (Security Considerations, and FR9 of spec-agent-integration).
+    if (messageBox(mfConfirmation | mfYesButton | mfNoButton,
+                   "Start '%s' as a structured conversation?", cmd.c_str()) != cmYes)
+        return;
+    TRect r = deskTop->getExtent();
+    if (docTree && (docTree->state & sfVisible))
+    {
+        TRect t = docTree->getBounds();
+        if (t.a.x > r.b.x - t.b.x)
+            r.b.x = max(t.a.x, 20);
+        else
+            r.a.x = min(t.b.x, r.b.x - 20);
+    }
+    agentChatWin = new AgentChatWindow(r, cmd, projectRoot,
+                                       "Agent (" + cmd + ")", &agentChatWin);
+    deskTop->insert(agentChatWin);
 }
 
 void TurboApp::selectAgent()
