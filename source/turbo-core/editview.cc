@@ -13,7 +13,7 @@ EditorView::EditorView(const TRect &bounds) noexcept :
 {
     growMode = gfGrowHiX | gfGrowHiY;
     options |= ofSelectable | ofFirstClick;
-    eventMask |= evMouseUp | evMouseMove | evMouseAuto | evBroadcast;
+    eventMask |= evMouseUp | evMouseMove | evMouseAuto | evMouseWheel | evBroadcast;
 }
 
 static TPoint getDelta(TScintilla &scintilla)
@@ -86,6 +86,25 @@ void EditorView::handleEvent(TEvent &ev)
             }
             clearEvent(ev);
             break;
+        case evMouseWheel:
+        {
+            // A plain wheel (no button held): scroll the view the mouse is over.
+            // TGroup routes the wheel to the view under the cursor, so this
+            // fires even when another window holds focus. Scroll by moving the
+            // offset directly (scrollTo -> setValue), NOT by feeding the wheel
+            // to scrollBarEvent: TScrollBar only reacts to the wheel while it is
+            // sfVisible, and an inactive window's bar may not be -- which would
+            // leave a hovered-but-unfocused editor unscrolled.
+            TPoint d = getDelta(scintilla);
+            if (ev.mouse.wheel & mwUp)         d.y -= 3;
+            else if (ev.mouse.wheel & mwDown)  d.y += 3;
+            else if (ev.mouse.wheel & mwLeft)  d.x -= 3;
+            else if (ev.mouse.wheel & mwRight) d.x += 3;
+            editor->scrollTo(d);
+            editor->partialRedraw();
+            clearEvent(ev);
+            break;
+        }
         case evCommand:
             switch (ev.message.command)
             {

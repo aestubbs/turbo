@@ -571,11 +571,9 @@ TMenuBar *TurboApp::makeMenuBar(TRect r, int recentCount, int toolCount)
             *new TMenuItem( "Line ~W~rapping", cmToggleWrap, kbF9, hcNoContext, "F9" ) +
             *new TMenuItem( "Auto ~I~ndent", cmToggleIndent, kbNoKey, hcNoContext ) +
             *new TMenuItem( "Spec ~M~anager", cmSpecManager, kbAltP, hcNoContext, "Alt-P" ) +
-            *new TMenuItem( "Spec Wor~k~bench", cmSpecWorkbench, kbNoKey, hcNoContext ) +
             *new TMenuItem( "Focus Other ~P~ane", cmFocusAgentPane, kbAltRight, hcNoContext, "Alt-Right" ) +
             *new TMenuItem( "~J~ump to Agent's Last Edit", cmJumpToolTarget, kbAltJ, hcNoContext, "Alt-J" ) +
             *new TMenuItem( "Implement Spec...", cmImplementSpec, kbNoKey, hcNoContext ) +
-            *new TMenuItem( "Agent Con~v~ersation", cmAgentChat, kbNoKey, hcNoContext ) +
             *new TMenuItem( "~H~idden Files", cmToggleHidden, kbNoKey, hcNoContext ) +
             *new TMenuItem( "Chan~g~e History", cmToggleChangeHistory, kbNoKey, hcNoContext ) +
             *new TMenuItem( "Long Line G~u~ide", cmToggleEdge, kbNoKey, hcNoContext ) +
@@ -754,8 +752,6 @@ void TurboApp::idle()
         dap->pump();
     if (mcp)
         mcp->pump();
-    if (agentChatWin)
-        agentChatWin->pump();
     // Workbench panes: one agent session per spec window (FR3).
     MRUlist.forEach([] (EditorWindow *w) {
         if (w && w->hasAgentPane())
@@ -873,9 +869,7 @@ void TurboApp::handleEvent(TEvent &event)
             case cmDebugSettings: editDebugSettings(); break;
             case cmNewSpec: newSpec(); break;
             case cmSpecManager: toggleSpecManager(); break;
-            case cmSpecWorkbench: specWorkbench(); break;
             case cmImplementSpec: implementSpecFocused(); break;
-            case cmAgentChat: toggleAgentChat(); break;
             case cmFocusAgentPane: focusOtherWorkbenchPane(); break;
             case cmJumpToolTarget: jumpToAgentEdit(); break;
             case cmThemeSettings: editThemeSettings(); break;
@@ -1021,32 +1015,43 @@ void TurboApp::fileNewNamedFile()
         message(w, evCommand, cmClose, 0);
 }
 
+// Whether interactively opening a spec auto-docks the agent Workbench (D25).
+// On by default; TURBO_NO_AUTO_SPEC_AGENT=1 suppresses it -- an escape hatch for
+// CI/tests and for users who would rather open specs without spawning an agent.
+// The explicit actions (Spec Manager Discuss, Implement) ignore this.
+static bool specAutoAgentEnabled() noexcept
+{
+    const char *e = std::getenv("TURBO_NO_AUTO_SPEC_AGENT");
+    return !(e && e[0]);
+}
+
 void TurboApp::fileOpen()
 {
     TurboFileDialogs dlgs {*this};
     turbo::openFile([&] () -> auto& {
         return createScintilla();
     }, [&] (auto &scintilla, auto *path) {
-        addEditor(scintilla, path);
+        addEditor(scintilla, path, /*userInitiated=*/true);
     }, dlgs);
 }
 
-void TurboApp::fileOpenOrNew(const char *path)
+void TurboApp::fileOpenOrNew(const char *path, bool userInitiated)
 {
     char abspath[MAXPATH];
     strnzcpy(abspath, path, MAXPATH);
     fexpand(abspath);
     auto &scintilla = createScintilla();
     if (turbo::readFile(scintilla, abspath, turbo::acceptMissingFilesOnOpen))
-        addEditor(scintilla, abspath);
+        addEditor(scintilla, abspath, userInitiated);
 }
 
 void TurboApp::openFileFromTree(const char *absPath)
 {
-    fileOpenOrNew(absPath);
+    fileOpenOrNew(absPath, /*userInitiated=*/true);
 }
 
-void TurboApp::openOrFocus(const std::string &absPath, long line) noexcept
+void TurboApp::openOrFocus(const std::string &absPath, long line,
+                           bool userInitiated) noexcept
 {
     if (absPath.empty())
         return;
@@ -1059,9 +1064,17 @@ void TurboApp::openOrFocus(const std::string &absPath, long line) noexcept
         found->focus();
     else
     {
-        fileOpenOrNew(absPath.c_str());
+        fileOpenOrNew(absPath.c_str(), userInitiated);
         found = MRUlist.empty() ? nullptr : MRUlist.next->self;
     }
+    // Interactively navigating to a spec docks its agent Workbench (D25), even
+    // when the spec was already open without a pane -- e.g. one reopened by
+    // session restore, which is a bulk load and stays paneless until you go to
+    // it yourself. The fresh-open path already docked in addEditor (idempotent),
+    // so this only bites on the found-and-focused branch.
+    if (userInitiated && found && found->isSpec && !found->hasAgentPane() &&
+        specAutoAgentEnabled())
+        ensureSpecWorkbench(*found, SpecAgentMode::Discuss);
     if (found && line >= 0)
     {
         auto &ed = found->getEditor();
@@ -2827,7 +2840,8 @@ turbo::TScintilla &TurboApp::createScintilla() noexcept
     return turbo::createScintilla();
 }
 
-void TurboApp::addEditor(turbo::TScintilla &scintilla, const char *path)
+void TurboApp::addEditor(turbo::TScintilla &scintilla, const char *path,
+                         bool userInitiated)
 // Pre: 'path' is an absolute path.
 {
     TRect r = newEditorBounds();
@@ -2860,6 +2874,14 @@ void TurboApp::addEditor(turbo::TScintilla &scintilla, const char *path)
         fireLuaEvent("openFile", {{"path", path}});
     else
         fireLuaEvent("newFile");
+
+    // Opening a spec yourself docks the agent Workbench automatically (D25):
+    // no menu command, no confirmation. Only for direct user opens -- bulk and
+    // programmatic opens (session restore, CLI args, DAP, Lua, Spec Manager,
+    // which has its own Discuss action) pass userInitiated=false and stay plain
+    // editors, so restoring a project doesn't launch a fleet of agents.
+    if (userInitiated && w.isSpec && specAutoAgentEnabled())
+        ensureSpecWorkbench(w, SpecAgentMode::Discuss);
 }
 
 short TurboApp::lowestFreeWindowNumber() noexcept
@@ -3651,7 +3673,7 @@ void TurboApp::newSpec()
     if (std::filesystem::exists(path, ec))
     {
         // The spec already exists: editing it beats refusing or clobbering.
-        openOrFocus(path);
+        openOrFocus(path, -1, /*userInitiated=*/true);
         return;
     }
     char date[16];
@@ -3669,7 +3691,7 @@ void TurboApp::newSpec()
     if (specMgr)
         specMgr->refresh();
     warnIfSpecsIgnored(projectRoot, "specs/" + stem + ".md");
-    openOrFocus(path);
+    openOrFocus(path, -1, /*userInitiated=*/true);
 }
 
 void TurboApp::toggleSpecManager()
@@ -3767,40 +3789,43 @@ void TurboApp::openSpecWorkbench(const std::string &specPath,
                    specPath.c_str());
         return;
     }
-    w->setSpecSectionsMode(true); // FR6: the per-section status strip
+    // Explicit action (Spec Manager Discuss/Implement, gated handoff): report a
+    // missing agent so the user isn't left wondering why nothing opened.
+    ensureSpecWorkbench(*w, mode, /*announceNoAgent=*/true);
+}
+
+void TurboApp::ensureSpecWorkbench(EditorWindow &w, SpecAgentMode mode,
+                                   bool announceNoAgent)
+{
+    w.setSpecSectionsMode(true); // FR6: the per-section status strip
 
     bool resumed = false;
-    if (w->hasAgentPane())
+    if (w.hasAgentPane())
     {
         // FR2: one window per spec. An existing conversation is not replaced
         // -- the new mission is sent into it, so context is kept.
-        w->select();
-        w->focusAgentPane(true);
+        w.select();
+        w.focusAgentPane(true);
     }
     else
     {
         std::string cmd = resolveAgentCommand(buildConfig.agent, settings.defaultAgent);
         if (cmd.empty())
         {
-            messageBox("No coding agent is configured.", mfInformation | mfOKButton);
+            // The passive auto-open must not nag; leave the spec a plain editor.
+            if (announceNoAgent)
+                messageBox("No coding agent is configured.",
+                           mfInformation | mfOKButton);
             return;
         }
         // FR7: if this spec already had a Workbench conversation this session,
         // resume it rather than starting fresh. Key off the editor's own path
         // so it matches whatever rememberSpecSession stored.
-        std::string resumeId = recallSpecSession(std::string(w->filePath()));
-        // Every agent launch is confirmed before the process starts; the
-        // command line comes only from agent config, never from spec content.
-        std::string specName {TPath::basename(specPath)};
-        if (messageBox(mfConfirmation | mfYesButton | mfNoButton,
-                       resumeId.empty()
-                           ? "Open the Spec Workbench on '%s' (%s) with '%s'?"
-                           : "Resume the Spec Workbench on '%s' (%s) with '%s'?",
-                       specName.c_str(), specAgentModeName(mode),
-                       cmd.c_str()) != cmYes)
-            return;
-        w->setAgentPaneMode(true, cmd, projectRoot, resumeId);
-        if (!w->hasAgentPane())
+        std::string resumeId = recallSpecSession(std::string(w.filePath()));
+        // No confirmation (D25): the command line comes only from agent config,
+        // never from spec content, so there is nothing for the user to vet.
+        w.setAgentPaneMode(true, cmd, projectRoot, resumeId);
+        if (!w.hasAgentPane())
             return;
         resumed = !resumeId.empty();
     }
@@ -3812,6 +3837,7 @@ void TurboApp::openSpecWorkbench(const std::string &specPath,
     // let the conversation continue where it left off.
     if (!resumed)
     {
+        std::string specPath {w.filePath()};
         std::string domain;
         {
             std::ifstream in(specPath, std::ios::binary);
@@ -3822,27 +3848,9 @@ void TurboApp::openSpecWorkbench(const std::string &specPath,
                 domain = turbo::parseSpec(ss.str(), specPath).domain;
             }
         }
-        w->sendToAgentPane(specAgentBrief(mode, specPath, domain, projectRoot));
+        w.sendToAgentPane(specAgentBrief(mode, specPath, domain, projectRoot));
     }
-    w->select();
-}
-
-void TurboApp::specWorkbench()
-{
-    EditorWindow *w = focusedEditor();
-    if (!w || !w->isSpec)
-    {
-        messageBox(mfError | mfOKButton,
-                   "Focus a spec (a file under specs/) first, or use the "
-                   "Spec Manager's Discuss action.");
-        return;
-    }
-    if (w->hasAgentPane())
-    {
-        w->select(); // already open: just focus it (FR2)
-        return;
-    }
-    openSpecWorkbench(w->filePath(), SpecAgentMode::Discuss);
+    w.select();
 }
 
 void TurboApp::jumpToAgentEdit()
@@ -3850,8 +3858,9 @@ void TurboApp::jumpToAgentEdit()
     EditorWindow *w = focusedEditor();
     if (!w || !w->hasAgentPane())
     {
-        messageBox("This window has no Workbench conversation pane. Use "
-                   "Spec Workbench on a spec first.", mfInformation | mfOKButton);
+        messageBox("This window has no Workbench conversation pane. Open a spec "
+                   "(a file under specs/) to start its conversation.",
+                   mfInformation | mfOKButton);
         return;
     }
     if (!w->jumpToToolTarget())
@@ -3864,8 +3873,9 @@ void TurboApp::focusOtherWorkbenchPane()
     EditorWindow *w = focusedEditor();
     if (!w || !w->hasAgentPane())
     {
-        messageBox("This window has no Workbench conversation pane. Use "
-                   "Spec Workbench on a spec first.", mfInformation | mfOKButton);
+        messageBox("This window has no Workbench conversation pane. Open a spec "
+                   "(a file under specs/) to start its conversation.",
+                   mfInformation | mfOKButton);
         return;
     }
     // Toggle: the document owns Tab (Scintilla indents with it), so crossing
@@ -3901,38 +3911,6 @@ void TurboApp::toggleAgent()
     }
     agentWin = new TerminalWindow(r, cmd, "Agent (" + cmd + ")", &agentWin);
     deskTop->insert(agentWin);
-}
-
-void TurboApp::toggleAgentChat()
-{
-    if (agentChatWin)
-    {
-        agentChatWin->focus();
-        return;
-    }
-    std::string cmd = resolveAgentCommand(buildConfig.agent, settings.defaultAgent);
-    if (cmd.empty())
-    {
-        messageBox("No coding agent is configured.", mfInformation | mfOKButton);
-        return;
-    }
-    // Every agent launch is confirmed by the user before the process starts
-    // (Security Considerations, and FR9 of spec-agent-integration).
-    if (messageBox(mfConfirmation | mfYesButton | mfNoButton,
-                   "Start '%s' as a structured conversation?", cmd.c_str()) != cmYes)
-        return;
-    TRect r = deskTop->getExtent();
-    if (docTree && (docTree->state & sfVisible))
-    {
-        TRect t = docTree->getBounds();
-        if (t.a.x > r.b.x - t.b.x)
-            r.b.x = max(t.a.x, 20);
-        else
-            r.a.x = min(t.b.x, r.b.x - 20);
-    }
-    agentChatWin = new AgentChatWindow(r, cmd, projectRoot,
-                                       "Agent (" + cmd + ")", &agentChatWin);
-    deskTop->insert(agentChatWin);
 }
 
 void TurboApp::selectAgent()

@@ -76,11 +76,15 @@ storage, and no billing change.
 
 ## The Workbench window
 
-- **FR1** — `cmSpecWorkbench` opens a `SpecWorkbenchWindow`: a single
-  `TWindow` containing the spec editor (left) and an agent conversation
-  view (right), separated by a draggable splitter. Moving, resizing,
-  zooming, or closing the window acts on both panes together. It is an
-  ordinary window, so several may be open at once (D10 stands).
+- **FR1** — Opening a spec interactively (file dialog, tree, Goto Anything,
+  New Spec) docks the agent conversation into that spec's editor window: a
+  single `TWindow` containing the spec editor (left) and the conversation
+  view (right), separated by a draggable splitter. Moving, resizing, zooming,
+  or closing the window acts on both panes together. It is an ordinary window,
+  so several may be open at once (D10 stands). Revised by **D25 (2026-07-23):**
+  the dock is automatic on interactive open, replacing the `cmSpecWorkbench`
+  command; bulk/programmatic opens (session restore, CLI args, DAP) stay plain
+  editors.
 - **FR2** — One window per spec. Invoking the Workbench on a spec that
   already has one focuses the existing window rather than opening a second.
 - **FR3** — Each window owns its own agent session. Two open Workbench
@@ -113,8 +117,12 @@ storage, and no billing change.
   fragment. This retires `shellQuoteArg` and the brief-file indirection
   that only existed to dodge shell quoting, and fixes the malformed-argv
   bug described in Background.
-- **FR9** — Agent launches remain user-confirmed before the process starts
-  (unchanged from the existing Security Considerations).
+- **FR9** — Reversed by **D25 (2026-07-23):** agent launches on interactive
+  spec open are *not* confirmed. The command line comes only from agent config
+  the user set up, never from spec content, so there is nothing for a per-open
+  dialog to vet; a modal on every spec open was friction on the primary path.
+  `TURBO_NO_AUTO_SPEC_AGENT` (D28) is the opt-out for anyone who wants to open
+  specs without launching an agent.
 
 ## Conversation view
 
@@ -450,6 +458,56 @@ storage, and no billing change.
   behaviour change -- the brief travels only as the opening structured turn
   (FR8) -- and `<filesystem>` went with `writeSpecBrief` as its sole user.
 
+- **D25 (2026-07-23):** The Workbench is no longer a command. Opening a spec
+  interactively auto-docks the agent (Discuss), and the launch confirmation is
+  gone. This supersedes D24's "no new container window" chain's assumption of a
+  manual `cmSpecWorkbench` trigger, FR4/FR17/D24 of `spec-workbench` ("separate
+  command"), and FR9 above / `spec-workbench` D25 ("user-confirmed launch").
+  Rationale: the docked pane *is* the spec-editing experience, so a menu command
+  plus a modal were friction on every open; the command line is trusted agent
+  config, never spec content, so the confirmation guarded nothing. Both retired
+  menu items -- `cmSpecWorkbench` ("Spec Workbench") and the older standalone
+  `cmAgentChat` ("Agent Conversation", the pre-dock `AgentChatWindow` scaffold)
+  -- and the confirmation are removed; `Implement` keeps its readiness gate but
+  loses the modal. "Interactive" is a `userInitiated` flag threaded through
+  `openOrFocus`/`fileOpenOrNew`/`addEditor` and set only at the user-open entry
+  points, so restore/CLI/DAP/Manager opens stay plain editors. The found-and-
+  focused branch of `openOrFocus` docks too, so navigating to an already-open
+  (e.g. session-restored) spec starts its conversation. Verified by the updated
+  `spec_workbench_test.py` (19 checks) and `spec_identity_test.py`.
+
+- **D26 (2026-07-23):** The split reads as one surface. The divider runs the
+  full inner height and ties into the window frame with box-drawing junctions
+  drawn by `EditorFrame` after `TFrame::draw` (the `OutputFrame::drawTabs`
+  pattern): `╤`/`╧` under an active (double) border, `┬`/`┴` under a passive
+  (single) one, coloured to match the frame. The bottom junction is always
+  drawn; the top is skipped when the divider column falls within the centered
+  title, so the filename is never carved into -- so in a wide window both
+  connect, and in a narrow one only the bottom does. The editor's vertical
+  scrollbar sits just left of the divider and the conversation's on the right
+  window frame (this pins the placement `spec-workbench` D29 left open).
+
+- **D27 (2026-07-23):** The mouse wheel acts on the view/window under the
+  cursor, not the focused one. Upstream Turbo Vision excludes `evMouseWheel`
+  from `positionalEvents`, so `TGroup::handleEvent` broadcast it front-to-back
+  and the focused window's scrollbar ate it. The fork now special-cases the
+  wheel in `TGroup::handleEvent`: route it to `firstThat(hasMouse)` and fall
+  back to the in-group broadcast only if that view doesn't consume it (so a
+  single-scrollbar window -- tree, output, help -- still works). Because the
+  spec window holds two vertical scrollbars in one group, the editor and the
+  conversation views each own the wheel (`EditorView` forwards to its own bars
+  via `scrollBarEvent`; `AgentConversationView` moves its own `topItem`), so the
+  hovered pane scrolls and the other stays put -- no divider-column geometry.
+  The mask is left untouched so the editor's button-held drag loops are
+  unaffected. Verified by `spec_scroll_test.py` under SGR wheel events.
+
+- **D28 (2026-07-23):** `TURBO_NO_AUTO_SPEC_AGENT=1` suppresses the D25
+  auto-dock, leaving an interactively-opened spec a plain editor. An escape
+  hatch for CI/tests (the surface-identity PTY sessions assert on the plain
+  purple editor) and for users who would rather not spawn an agent on every
+  spec open. Off by default; the explicit actions (Manager Discuss, Implement)
+  ignore it.
+
 Open questions: none at present. Implementation may surface new ones (FR14
 of `spec-workbench`).
 
@@ -475,6 +533,13 @@ of `spec-workbench`).
       pane's cursor (FR11); domain-pack amendment pushing `ask_user` for
       enumerable decisions (FR13); Draft and Implement move onto the
       structured session. Docs updated.
+- [x] **M5 — Open-to-converse UX (2026-07-23).** Auto-dock on interactive spec
+      open with no command and no confirmation (D25/D28); the divider ties into
+      the frame with box-drawing junctions and pinned scrollbar sides (D26); the
+      mouse wheel acts on the pane/window under the cursor (D27). Retires the
+      `cmSpecWorkbench` and `cmAgentChat` menu items and the `AgentChatWindow`
+      scaffold. PTY-verified (`spec_workbench_test`, `spec_scroll_test`,
+      `spec_identity_test`).
 
 # Summary
 

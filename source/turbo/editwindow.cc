@@ -44,6 +44,43 @@ void EditorFrame::draw()
         b.moveCStr(0, "[\xE2\x96\xB6]", cFrame); // [►]
         writeLine(size.x - 9, 0, 3, 1, b);
     }
+
+    // Tie the Spec Workbench divider into the frame: a junction where the
+    // vertical split meets the top border and another at the bottom, so the
+    // split reads as one line rather than a stripe floating in the surface.
+    // The line weight follows the frame (double while active, single otherwise,
+    // matching TFrame's own border), and the colour matches the border it sits
+    // on. See EditorWindow::agentDividerColumn() (specworkbench.cc).
+    int split = owner ? ((EditorWindow *) owner)->agentDividerColumn() : -1;
+    if (split > 0 && split < size.x - 1 && size.y >= 2)
+    {
+        bool dbl = (state & sfActive) && !(state & sfDragging);
+        TAttrPair c = (state & sfDragging) ? getColor(0x0505)
+                    : (state & sfActive)   ? getColor(0x0503)
+                                           : getColor(0x0101);
+        const char *topJ = dbl ? "\xE2\x95\xA4"   // ╤ U+2564 (over a double border)
+                               : "\xE2\x94\xAC";   // ┬ U+252C (single border)
+        const char *botJ = dbl ? "\xE2\x95\xA7"   // ╧ U+2567
+                               : "\xE2\x94\xB4";   // ┴ U+2534
+        TDrawBuffer b;
+        // The bottom border is a clean rule -- always cap the divider there.
+        b.moveCStr(0, botJ, c);
+        writeLine(split, size.y - 1, 1, 1, b);
+        // The top border also carries the centered title; only cap the divider
+        // there when the column is clear of the title text, so the junction is
+        // never carved into the filename. Mirror TFrame's own title placement
+        // (source/tvision/tframe.cpp): l = min(strwidth(title), width-10),
+        // centered, spanning [i-1, i+l] with its padding spaces.
+        const char *title = ((TWindow *) owner)->getTitle((short) size.x);
+        int l = title ? std::min((int) strwidth(title), size.x - 10) : 0;
+        int ti = (size.x - std::max(l, 0)) >> 1;
+        bool onTitle = title && split >= ti - 1 && split <= ti + l;
+        if (!onTitle)
+        {
+            b.moveCStr(0, topJ, c);
+            writeLine(split, 0, 1, 1, b);
+        }
+    }
 }
 
 void EditorFrame::handleEvent(TEvent &ev)

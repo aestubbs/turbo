@@ -184,6 +184,9 @@ struct EditorWindow : public turbo::BasicEditorWindow
                           const std::string &cwd = {},
                           const std::string &resumeSessionId = {}) noexcept;
     bool hasAgentPane() const noexcept { return agentPane != nullptr; }
+    // The window column of the Workbench divider, or -1 when no pane is docked.
+    // EditorFrame uses it to draw the ┬/┴ where the divider meets the frame.
+    int agentDividerColumn() const noexcept;
     // Drain the pane's agent session; called from the app's idle loop.
     void pumpAgentPane() noexcept;
     // Move focus to the conversation ('toAgent') or back to the document.

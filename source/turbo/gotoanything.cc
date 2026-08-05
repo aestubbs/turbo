@@ -264,7 +264,7 @@ void runGotoAnything(TurboApp &app) noexcept
             }
         }
         else
-            app.openOrFocus(t.path, t.line);
+            app.openOrFocus(t.path, t.line, /*userInitiated=*/true);
     }
     TObject::destroy(picker);
 }

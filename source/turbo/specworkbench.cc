@@ -125,7 +125,11 @@ void EditorWindow::layoutAgentPane() noexcept
         specBar->setBounds(r);
     }
     if (agentPane->divider)
-        agentPane->divider->setBounds(TRect(split, top, split + 1, contentBottom));
+        // Run the divider the full inner height (just under the top border to
+        // just above the bottom), not only the content rows: column 'split' is
+        // free at the strip row (specBar stops at 'split' below), so the line is
+        // continuous and EditorFrame draws the ┬/┴ where it meets the frame.
+        agentPane->divider->setBounds(TRect(split, 1, split + 1, contentBottom));
     if (agentPane->view)
         agentPane->view->setBounds(TRect(split + 1, top, right, composerY));
     if (agentPane->scrollBar)
@@ -138,6 +142,11 @@ void EditorWindow::changeBounds(const TRect &bounds)
 {
     super::changeBounds(bounds);
     layoutAgentPane(); // absolute re-split; immune to the subviews' growMode
+}
+
+int EditorWindow::agentDividerColumn() const noexcept
+{
+    return agentPane && agentPane->divider ? agentPane->divider->origin.x : -1;
 }
 
 void EditorWindow::setAgentPaneMode(bool on, const std::string &command,

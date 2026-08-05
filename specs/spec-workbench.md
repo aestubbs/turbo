@@ -548,6 +548,11 @@ Decided (proposed by this draft; overridable in review):
   per Security Considerations; the Manager's Draft key is W. Gate-blocker
   wording was compacted ("not reviewed", "dep 'x' is 'draft'") since the
   Manager's Status column already carries the state.
+  *(Superseded in part by `spec-agent-integration` D25 (2026-07-23): the
+  brief-pointer file is gone -- the brief travels as the opening structured
+  turn (that spec's FR8) -- and interactive spec opens auto-launch the agent
+  with no confirmation. The trusted-config rationale is unchanged; only the
+  per-open modal is dropped.)*
 
 - **D26 (2026-07-19):** M6 implementation notes. The gate is enforced in
   `implementSpec` (a refusal dialog lists every blocker), not via

@@ -16,6 +16,7 @@
 
 #include <turbo/basicwindow.h> // shared window-chrome scheme
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 
@@ -38,8 +39,6 @@ TColorRGB lighten(TColorDesired c, int pct) noexcept
     auto m = [&] (int x) { return (uint8_t) (x + (255 - x) * pct / 100); };
     return TColorRGB(m(r), m(g), m(b));
 }
-
-constexpr int composerMax = 1024;
 
 } // namespace
 
@@ -96,6 +95,10 @@ AgentConversationView::AgentConversationView(const TRect &bounds,
 {
     options |= ofFirstClick | ofSelectable;
     growMode = gfGrowHiX | gfGrowHiY;
+    // Own the wheel so scrolling acts on the pane the mouse is over, not on
+    // whichever scrollbar a group broadcast happens to reach (the Spec
+    // Workbench editor and this transcript share one window).
+    eventMask |= evMouseWheel;
     setRange(0);
 }
 
@@ -214,6 +217,39 @@ void AgentConversationView::handleEvent(TEvent &ev)
         clearEvent(ev);
         return;
     }
+    if (ev.what == evMouseWheel)
+    {
+        // Scroll the viewport itself three rows. TListViewer scrolls by moving
+        // 'focused', which only shifts topItem once the focus leaves the visible
+        // window -- useless while tail-following (focus sits at the bottom). So
+        // move topItem directly and keep focus inside it, mirroring the output
+        // pane's feel.
+        int step = (ev.mouse.wheel & mwUp) ? -3
+                 : (ev.mouse.wheel & mwDown) ? 3 : 0;
+        if (step && range > 0 && size.y > 0)
+        {
+            int maxTop = range > size.y ? range - size.y : 0;
+            int newTop = std::min(std::max(topItem + step, 0), maxTop);
+            if (newTop != topItem)
+            {
+                topItem = newTop;
+                if (focused < topItem)
+                    focused = topItem;
+                else if (focused >= topItem + size.y)
+                    focused = topItem + size.y - 1;
+                if (vScrollBar)
+                    vScrollBar->setValue(focused);
+                drawView();
+            }
+        }
+        if (conv)
+        {
+            int n = (int) conv->layout(contentWidth()).size();
+            followTail = n == 0 || focused >= n - 1;
+        }
+        clearEvent(ev);
+        return;
+    }
     TListViewer::handleEvent(ev);
     // Any navigation that leaves the last row parks the tail-follow; returning
     // to the bottom resumes it. Same behaviour as the output pane.
@@ -222,143 +258,4 @@ void AgentConversationView::handleEvent(TEvent &ev)
         int n = (int) conv->layout(contentWidth()).size();
         followTail = n == 0 || focused >= n - 1;
     }
-}
-
-// ---------------------------------------------------------------------------
-// AgentChatWindow
-
-AgentChatWindow::AgentChatWindow(const TRect &bounds, std::string command,
-                                 std::string cwd, std::string title,
-                                 AgentChatWindow **aBackPtr) noexcept :
-    TWindowInit(&TWindow::initFrame),
-    TWindow(bounds, title.c_str(), wnNoNumber),
-    backPtr(aBackPtr),
-    baseTitle(title),
-    titleBuf(std::move(title)),
-    command_(std::move(command)),
-    cwd_(std::move(cwd))
-{
-    options |= ofTileable;
-    state &= ~sfShadow;
-
-    TRect r = getExtent().grow(-1, -1);
-    int composerY = r.b.y - 1;
-
-    vScrollBar = new TScrollBar(TRect(size.x - 1, 1, size.x, composerY));
-    vScrollBar->growMode = gfGrowLoX | gfGrowHiX | gfGrowHiY;
-    insert(vScrollBar);
-
-    view = new AgentConversationView(TRect(r.a.x, r.a.y, r.b.x, composerY),
-                                     vScrollBar, &conv);
-    insert(view);
-
-    composer = new ComposerInputLine(TRect(r.a.x, composerY, r.b.x, composerY + 1),
-                                     composerMax);
-    composer->growMode = gfGrowLoY | gfGrowHiX | gfGrowHiY;
-    composer->onSubmit = [this] (const std::string &text) { submit(text); };
-    composer->onFocusOut = [this] { if (view) view->select(); };
-    insert(composer);
-
-    session.reset(new SpecAgentSession());
-    session->onWake = [] { TEventQueue::wakeUp(); };
-    session->onEvent = [this] (const turbo::SpecAgentEvent &e) {
-        if (conv.addEvent(e) && view)
-            view->refresh();
-        // The session id only becomes known once the agent reports it; show it
-        // so a resume is possible after the window closes.
-        if (e.kind == turbo::SpecAgentEventKind::SessionStart && frame)
-            frame->drawView();
-    };
-
-    if (!session->start(command_, cwd_))
-    {
-        conv.addNotice("Could not start the agent: " + command_);
-        if (view)
-            view->refresh();
-    }
-    else
-        conv.addNotice("Agent started. Type a message and press Enter.");
-    if (view)
-        view->refresh();
-    composer->select();
-}
-
-void AgentChatWindow::submit(const std::string &text) noexcept
-{
-    if (!session)
-        return;
-    conv.addUserTurn(text);
-    if (!session->send(text))
-        conv.addNotice("The agent is not running; the message was not sent.");
-    if (view)
-    {
-        view->followTail = true;
-        view->refresh();
-    }
-}
-
-void AgentChatWindow::pump() noexcept
-{
-    if (session)
-        session->pump();
-}
-
-const char *AgentChatWindow::getTitle(short)
-{
-    titleBuf = baseTitle;
-    if (session && session->busy())
-        titleBuf += " (working)";
-    else if (session && !session->running())
-        titleBuf += " (stopped)";
-    return titleBuf.c_str();
-}
-
-TColorAttr AgentChatWindow::mapColor(uchar index) noexcept
-{
-    // Resolve chrome through the shared window scheme so the frame and
-    // scrollbar match the editors, tree and output pane.
-    if (index > 0 && index - 1 < turbo::WindowPaletteItemCount)
-        return turbo::windowSchemeActive[index - 1];
-    return errorAttr;
-}
-
-void AgentChatWindow::setState(ushort aState, Boolean enable)
-{
-    TWindow::setState(aState, enable);
-    if (aState == sfActive)
-        redraw(); // the transcript's background tracks the active state
-}
-
-void AgentChatWindow::layoutPanes() noexcept
-{
-    // Kept for M3, when the panes move into the Workbench container and the
-    // splitter drives this.
-}
-
-void AgentChatWindow::handleEvent(TEvent &ev)
-{
-    if (ev.what == evKeyDown && ev.keyDown.keyCode == kbTab && view &&
-        (view->state & sfSelected))
-    {
-        if (composer)
-            composer->select();
-        clearEvent(ev);
-        return;
-    }
-    TWindow::handleEvent(ev);
-}
-
-void AgentChatWindow::shutDown()
-{
-    if (session)
-        session->stop();
-    if (backPtr)
-    {
-        *backPtr = nullptr;
-        backPtr = nullptr;
-    }
-    view = nullptr;
-    composer = nullptr;
-    vScrollBar = nullptr;
-    TWindow::shutDown();
 }

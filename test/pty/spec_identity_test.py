@@ -93,6 +93,12 @@ Some background text for rendering.
 - [ ] first thing
 """
 
+# Opening a spec interactively now auto-docks the agent Workbench (D25). These
+# surface/manager/ask/loop sessions are about the purple identity, not the
+# agent, so suppress the auto-dock (TURBO_NO_AUTO_SPEC_AGENT) and test the plain
+# spec editor. Sessions 5 and 7 clear it in env_extra to exercise the Workbench.
+os.environ["TURBO_NO_AUTO_SPEC_AGENT"] = "1"
+
 def setup():
     shutil.rmtree(PROJ, ignore_errors=True)
     os.makedirs(PROJ + "/specs")
@@ -101,7 +107,7 @@ def setup():
     with open(PROJ + "/readme.txt", "w") as f:
         f.write("plain file\n")
 
-def run_session(env_extra, actions, timeout=25):
+def run_session(env_extra, actions, timeout=25, width=120):
     """Spawn turbo on PROJ, run actions(send), return all raw output bytes."""
     pid, fd = pty.fork()
     if pid == 0:
@@ -116,7 +122,7 @@ def run_session(env_extra, actions, timeout=25):
 
     # A fresh pty is 0x0; tvision would paint into an empty screen. Give the
     # child a real terminal size before it initializes.
-    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, width, 0, 0))
     out = bytearray()
     deadline = time.time() + timeout
 
@@ -405,14 +411,15 @@ with open(PROJ + "/.turbo/config.json", "w") as f:
     json.dump({"agent": spy_path + " " + spy_log}, f)
 
 def actions_workbench(send, drain):
+    # Opening a spec interactively auto-docks the Workbench (D25) -- no palette
+    # command and no launch confirmation.
     send(["\x10"]); drain(0.6)
-    send(list("test-spec")); drain(0.5)
-    send(["\r"]); drain(1.5)
-    open_via_palette(send, drain, "Workbench")
-    drain(1.0)
-    send(["\r"]); drain(2.5)   # confirm "Launch ... as the spec agent?"
+    send(list("test-spec")); drain(0.8)
+    send(["\r"]); drain(3.5)   # open -> pane docks, strip appears, brief sent
 
-out5 = run_session({}, actions_workbench)
+# A wider terminal so the section strip -- clamped to the (now narrower) editor
+# once the pane docks -- still has room to name the empty section.
+out5 = run_session({"TURBO_NO_AUTO_SPEC_AGENT": ""}, actions_workbench, width=170)
 s5 = stripped(out5)
 # The fixture spec: Background (drafted), Objective (empty), Implementation
 # Plan (has a checkbox), so the strip reads "Sections 2/3 drafted | empty:
@@ -487,10 +494,9 @@ def actions_implement(send, drain):
     send(["i"]); drain(1.2)       # Implement -> gate refusal box
     send(["\r"]); drain(0.8)      # dismiss
     send(["\x1b[A"]); drain(0.5)  # Up -> ship-it (reviewed, gate passes)
-    send(["i"]); drain(1.2)       # Implement -> launch confirmation
-    send(["\r"]); drain(2.5)      # Yes -> agent launches
+    send(["i"]); drain(3.0)       # Implement -> workbench docks (no confirm, D25)
 
-out7 = run_session({}, actions_implement)
+out7 = run_session({"TURBO_NO_AUTO_SPEC_AGENT": ""}, actions_implement)
 s7 = stripped(out7)
 check("impl: gate refusal names the blocker", "Cannot implement" in s7)
 # The gated launch now opens the Workbench on the spec rather than a

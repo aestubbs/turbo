@@ -38,7 +38,6 @@ struct BranchView;
 struct TerminalView;
 struct TerminalWindow;
 struct SpecManagerWindow;
-struct AgentChatWindow;
 enum class SpecAgentMode;
 
 // A configured tool process, toggled on/off from the Run menu (e.g. `npm run
@@ -114,11 +113,6 @@ struct TurboApp : public TApplication, EditorWindowParent
     // window running the configured agent). Single instance; nulled on close.
     TerminalWindow *agentWin {nullptr};
 
-    // The structured agent conversation window (specs/spec-agent-integration.md
-    // M2): the same agent, driven headlessly over stream-json and rendered as
-    // typed events instead of a terminal. Single instance; nulled on close.
-    AgentChatWindow *agentChatWin {nullptr};
-
     // Agent session ids captured from open Workbench panes, keyed by spec path
     // (spec-agent-integration FR7). When a Workbench is reopened on a spec that
     // has an entry here, its agent is relaunched with --resume so the
@@ -175,11 +169,16 @@ struct TurboApp : public TApplication, EditorWindowParent
     // open it so the right lexer applies from the start (see cmNewNamedFile).
     void fileNewNamedFile();
     void fileOpen();
-    void fileOpenOrNew(const char *path);
+    // 'userInitiated' is true only for direct user opens (file dialog, tree,
+    // Goto Anything, New Spec). It flows to addEditor, where opening a spec that
+    // way auto-docks the agent Workbench; bulk/programmatic opens (session
+    // restore, CLI args, DAP, Lua) leave it false so they stay plain editors.
+    void fileOpenOrNew(const char *path, bool userInitiated = false);
     void openFileFromTree(const char *absPath);
     // Focus the editor already showing 'absPath', or open it; then jump to
     // 'line' (0-based; <0 = no jump) and record the open for frecency ranking.
-    void openOrFocus(const std::string &absPath, long line = -1) noexcept;
+    void openOrFocus(const std::string &absPath, long line = -1,
+                     bool userInitiated = false) noexcept;
     // Fuzzy navigation overlays (Ctrl-P / Ctrl-Shift-P).
     void gotoAnything();
     void commandPalette();
@@ -224,13 +223,19 @@ struct TurboApp : public TApplication, EditorWindowParent
     void newSpec();
     // Show (or focus) the Spec Manager window. Alt-P / cmSpecManager.
     void toggleSpecManager();
-    // The Spec Workbench (FR4): open (or focus) the docked Workbench on the
-    // focused spec editor -- the document with its section strip on the left,
-    // the agent conversation on the right, one window (spec-agent-integration).
-    void specWorkbench();
     // Open (or focus) the Workbench on a spec and send the mode's brief.
-    // All three modes -- Discuss, Draft, Implement -- run here now.
+    // All three modes -- Discuss, Draft, Implement -- run here now. Opening a
+    // spec interactively docks the Workbench automatically (D25), so there is no
+    // separate menu command; this stays for the Spec Manager's Discuss/Implement
+    // actions and the gated handoff.
     void openSpecWorkbench(const std::string &specPath, SpecAgentMode mode);
+    // Dock the agent Workbench onto an already-open spec window and send the
+    // mode's brief (no confirmation, D25). Idempotent -- focuses an existing
+    // pane. openSpecWorkbench() and the auto-open on interactive spec opens both
+    // route through here. 'announceNoAgent' reports a missing agent config (for
+    // explicit menu/Manager actions); the passive auto-open leaves it false.
+    void ensureSpecWorkbench(EditorWindow &w, SpecAgentMode mode,
+                             bool announceNoAgent = false);
     // The gated handoff (FR13/FR20): refuse with the blocker list unless the
     // spec is reviewed, dependencies implemented, and no questions open.
     void implementSpec(const std::string &specPath);
@@ -296,7 +301,8 @@ struct TurboApp : public TApplication, EditorWindowParent
     void closeAll();
     TRect newEditorBounds() const;
     turbo::TScintilla &createScintilla() noexcept;
-    void addEditor(turbo::TScintilla &, const char *path);
+    void addEditor(turbo::TScintilla &, const char *path,
+                   bool userInitiated = false);
 
     // The currently focused editor window (front of the MRU list), or nullptr.
     EditorWindow *focusedEditor() noexcept;
@@ -407,8 +413,6 @@ struct TurboApp : public TApplication, EditorWindowParent
     // resolved agent command in the project dir) or focuses the existing one;
     // selectAgent() picks the per-project agent; restartAgent() reopens it.
     void toggleAgent();
-    // Open (or focus) the structured agent conversation window.
-    void toggleAgentChat();
     // Move focus between the Workbench's document and conversation panes.
     void focusOtherWorkbenchPane();
     // Move the document's cursor to the agent's most recent edit (FR11).

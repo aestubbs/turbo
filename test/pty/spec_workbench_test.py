@@ -185,6 +185,14 @@ def setup():
         f.write(SPEC_B)
 
 def run_session(actions, timeout=40):
+    # Each session must be independent: a clean quit (Ctrl-Q) saves the open
+    # editors to .turbo/session, and the next launch would restore them as plain
+    # editors (a bulk load, so paneless) -- muddying window layout and which
+    # spec is open. Clear it so every session starts from just the project.
+    try:
+        os.remove(PROJ + "/.turbo/session")
+    except OSError:
+        pass
     pid, fd = pty.fork()
     if pid == 0:
         os.environ["TERM"] = "xterm-256color"
@@ -240,13 +248,12 @@ setup()
 marks = {}
 
 def open_workbench(send, drain, name):
+    # Opening a spec interactively auto-docks the Workbench (D25): no palette
+    # command and no launch confirmation -- just open the file and the agent
+    # pane docks itself and receives the opening brief.
     send(["\x10"]); drain(0.6)              # Ctrl-P: go to anything
-    send(list(name)); drain(0.6)
-    send(["\r"]); drain(1.5)                # open the spec
-    send(["\x02"]); drain(0.5)              # Ctrl-B: palette
-    send(list("Spec Workbench")); drain(0.5)
-    send(["\r"]); drain(0.8)
-    send(["\r"]); drain(2.5)                # confirm the launch
+    send(list(name)); drain(0.8)
+    send(["\r"]); drain(4.5)                # open the spec -> pane docks + briefs
 
 def actions(send, drain, out):
     open_workbench(send, drain, "alpha")

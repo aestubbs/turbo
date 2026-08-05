@@ -51,9 +51,7 @@ const PaletteCommand kCommands[] =
     // Specs (spec-driven ALM)
     { "New Spec...",                   cmNewSpec,              "",             false },
     { "Spec Manager",                  cmSpecManager,          "Alt-P",        false },
-    { "Spec Workbench",                cmSpecWorkbench,        "",             true  },
     { "Implement Spec...",             cmImplementSpec,        "",             true  },
-    { "Agent Conversation",            cmAgentChat,            "",             false },
     { "Focus Other Workbench Pane",    cmFocusAgentPane,       "Alt-Right",    true  },
     { "Jump to Agent's Last Edit",     cmJumpToolTarget,       "Alt-J",        true  },
     // Navigation (new)

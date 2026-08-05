@@ -70,40 +70,4 @@ private:
     int contentWidth() const noexcept { return size.x > 0 ? size.x : 1; }
 };
 
-// An ordinary window hosting a conversation with one agent session. M3 moves
-// these parts into the Spec Workbench container; until then this is how the
-// pane is exercised.
-struct AgentChatWindow : public TWindow
-{
-    turbo::AgentConversation conv;
-    std::unique_ptr<SpecAgentSession> session;
-    AgentConversationView *view {nullptr};
-    ComposerInputLine *composer {nullptr};
-    TScrollBar *vScrollBar {nullptr};
-    AgentChatWindow **backPtr {nullptr}; // nulled on close, like TerminalWindow
-    std::string baseTitle {"Agent"};
-    std::string titleBuf {"Agent"};
-
-    // 'command' is the resolved agent command line, 'cwd' the project root.
-    // The caller is responsible for confirming the launch with the user first
-    // (the agent-launch confirmation lives in the app, as it does today).
-    AgentChatWindow(const TRect &bounds, std::string command, std::string cwd,
-                    std::string title, AgentChatWindow **backPtr = nullptr) noexcept;
-
-    // Send a turn and echo it into the transcript.
-    void submit(const std::string &text) noexcept;
-    // Drain the session; call from the app's idle loop.
-    void pump() noexcept;
-
-    const char *getTitle(short) override;
-    TColorAttr mapColor(uchar index) noexcept override;
-    void setState(ushort aState, Boolean enable) override;
-    void handleEvent(TEvent &ev) override;
-    void shutDown() override;
-
-private:
-    void layoutPanes() noexcept;
-    std::string command_, cwd_;
-};
-
 #endif // TURBO_AGENTCONVERSATIONVIEW_H
