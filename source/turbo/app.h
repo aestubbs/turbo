@@ -243,6 +243,11 @@ struct TurboApp : public TApplication, EditorWindowParent
     // Show/hide each open editor's conflict toolbar from git's unmerged set.
     void updateEditorConflictBars() noexcept;
     void configureLsp();
+    // Detect the project's type (currently: Laravel, via an `artisan` file) and
+    // enable the matching project-scoped language servers. Called on project
+    // open; warns once per session if a detected server isn't installed.
+    void autoConfigureProjectLsp() noexcept;
+    bool warnedNoLaravelLsp {false};
     void editLspSettings();
     // Per-project debug-adapter settings dialog (edits .turbo/debug.json).
     void editDebugSettings();

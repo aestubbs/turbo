@@ -56,6 +56,10 @@
 #include <filesystem>
 #include <fstream>
 
+#ifndef _WIN32
+#include <unistd.h> // access(), X_OK -- locating auto-detected LSP binaries
+#endif
+
 using namespace Scintilla;
 
 // Defined further down; forward-declared so the Lua helpers above it can trim
@@ -1128,6 +1132,116 @@ static void ensureTurboCacheIgnored(const std::string &projectRoot) noexcept
         f << "*\n";
 }
 
+// --- Project-type auto-detection for language servers ----------------------
+
+namespace {
+
+bool fileIsExecutable(const std::string &p) noexcept
+{
+#ifdef _WIN32
+    (void) p;
+    return false;
+#else
+    return access(p.c_str(), X_OK) == 0;
+#endif
+}
+
+bool commandOnPath(const std::string &cmd) noexcept
+{
+#ifdef _WIN32
+    (void) cmd;
+    return false;
+#else
+    const char *path = getenv("PATH");
+    if (!path)
+        return false;
+    std::string dir;
+    for (const char *p = path; ; ++p)
+    {
+        if (*p == ':' || *p == '\0')
+        {
+            if (!dir.empty() && fileIsExecutable(dir + "/" + cmd))
+                return true;
+            dir.clear();
+            if (*p == '\0')
+                break;
+        }
+        else
+            dir += *p;
+    }
+    return false;
+#endif
+}
+
+// Locate the Laravel LSP: on PATH, else the standard composer-global bin dirs.
+// It is usually installed with `composer global require laravel/lsp`, whose bin
+// directory is frequently NOT on PATH. Returns the command to run, or "".
+std::string findLaravelLsp() noexcept
+{
+    if (commandOnPath("laravel-lsp"))
+        return "laravel-lsp";
+#ifndef _WIN32
+    std::vector<std::string> dirs;
+    if (const char *ch = getenv("COMPOSER_HOME"); ch && ch[0])
+        dirs.push_back(std::string(ch) + "/vendor/bin");
+    if (const char *home = getenv("HOME"); home && home[0])
+    {
+        dirs.push_back(std::string(home) + "/.composer/vendor/bin");
+        dirs.push_back(std::string(home) + "/.config/composer/vendor/bin");
+    }
+    for (auto &d : dirs)
+        if (std::string p = d + "/laravel-lsp"; fileIsExecutable(p))
+            return p;
+#endif
+    return {};
+}
+
+} // namespace
+
+void TurboApp::autoConfigureProjectLsp() noexcept
+{
+    if (!lsp)
+        return;
+    std::vector<LspServerSpec> detected;
+
+    // Laravel: an `artisan` CLI at the project root. Enable the Laravel LSP for
+    // php + blade, unless the user already configured a laravel-lsp themselves
+    // (respect explicit config). Warn once per session if it isn't installed.
+    if (!projectRoot.empty())
+    {
+        std::error_code ec;
+        bool laravel = std::filesystem::is_regular_file(
+            std::filesystem::path(projectRoot) / "artisan", ec);
+        if (laravel)
+        {
+            bool userHasIt = false;
+            for (auto &s : settings.lspServers)
+                if (s.command.find("laravel-lsp") != std::string::npos)
+                    userHasIt = true;
+            for (auto &e : settings.lspExtraServers)
+                if (e.command.find("laravel-lsp") != std::string::npos)
+                    userHasIt = true;
+            if (!userHasIt)
+            {
+                std::string cmd = findLaravelLsp();
+                if (!cmd.empty())
+                    detected.push_back({"laravel-lsp", cmd, {"php", "blade"}});
+                else if (!warnedNoLaravelLsp)
+                {
+                    warnedNoLaravelLsp = true;
+                    messageBox(mfInformation | mfOKButton,
+                        "Laravel project detected, but laravel-lsp is not "
+                        "installed. Install it with:\n\n"
+                        "  composer global require laravel/lsp\n\n"
+                        "then reopen the project.");
+                }
+            }
+        }
+    }
+
+    lsp->setProjectServers(std::move(detected));
+}
+
 void TurboApp::openProject(const std::string &dir) noexcept
 {
     if (!docTree)
@@ -1171,7 +1285,10 @@ void TurboApp::openProject(const std::string &dir) noexcept
             docTree->tree->linkEditor(w);
     });
     if (lsp)
+    {
         lsp->setRootPath(root.c_str());
+        autoConfigureProjectLsp(); // detect project type -> project-scoped servers
+    }
     if (dap)
         dap->setRootPath(root.c_str());
     if (git)
@@ -1225,6 +1342,8 @@ void TurboApp::closeProject() noexcept
     buildConfig = BuildConfig {}; // forget the project's build/run config
     applyToolConfig();            // clears 'tools' + removes their Output tabs/menu
     lastBuildCommand.clear();
+    if (lsp)
+        lsp->setProjectServers({}); // stop auto-detected, project-scoped servers
     if (watcher)
         watcher->stop();
     if (git)
@@ -1965,10 +2084,15 @@ void TurboApp::configureLsp()
 {
     if (!lsp)
         return;
-    std::vector<std::pair<std::string, std::string>> servers;
-    servers.reserve(settings.lspServers.size());
+    std::vector<LspServerSpec> servers;
+    servers.reserve(settings.lspServers.size() + settings.lspExtraServers.size());
+    // Per-language "primary" servers override the built-in default for their
+    // language (key == language).
     for (auto &s : settings.lspServers)
-        servers.emplace_back(s.language, s.command);
+        servers.push_back({s.language, s.command, {s.language}});
+    // Extra servers run alongside, and may serve several languages at once.
+    for (auto &e : settings.lspExtraServers)
+        servers.push_back({e.name, e.command, e.languages});
     lsp->configure(settings.lspEnabled, std::move(servers));
 }
 

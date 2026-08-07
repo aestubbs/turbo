@@ -6,11 +6,22 @@
 #include <vector>
 
 // A language-server command configured for a given language id (e.g.
-// {"cpp", "clangd"} or {"python", "pyright-langserver --stdio"}).
+// {"cpp", "clangd"} or {"python", "pyright-langserver --stdio"}). This is the
+// per-language "primary" server; it overrides the built-in default.
 struct LspServerConfig
 {
     std::string language;
     std::string command;
+};
+
+// An extra language server that runs ALONGSIDE the per-language servers and may
+// serve several languages at once (e.g. one server serving both "php" and
+// "blade"). Configured via `lsp.extra.<name>.command` / `lsp.extra.<name>.langs`.
+struct LspExtraServer
+{
+    std::string name;
+    std::string command;
+    std::vector<std::string> languages;
 };
 
 // Application-wide settings, persisted to a config file in the user's home
@@ -41,6 +52,9 @@ struct AppSettings
     // Language-server command overrides. Empty by default; the LSP manager
     // falls back to built-in defaults for languages not listed here.
     std::vector<LspServerConfig> lspServers;
+    // Extra servers (each serving one or more languages) that run alongside the
+    // per-language servers. Empty by default. See LspExtraServer.
+    std::vector<LspExtraServer> lspExtraServers;
     // Colour-theme overrides, stored as "<item>.<fg|bg|style>" -> value (e.g.
     // "sKeyword1.fg" -> "569CD6", "sComment.style" -> "italic"). Persisted under
     // the "theme." prefix in ~/.turborc. The mapping to/from the active colour

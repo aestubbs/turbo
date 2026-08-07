@@ -104,6 +104,7 @@ std::string languageIdFor(const turbo::Language *lang) noexcept
     if (lang == &Language::Go)          return "go";
     if (lang == &Language::JavaScript)  return "javascript";
     if (lang == &Language::PHP)         return "php";
+    if (lang == &Language::Blade)       return "blade";
     if (lang == &Language::Elixir)      return "elixir";
     return {};
 }
@@ -290,23 +291,59 @@ void LspManager::setRootPath(const char *path) noexcept
         rootUri = uriFromPath(path);
 }
 
-void LspManager::configure(bool aEnabled,
-                           std::vector<std::pair<std::string, std::string>> servers) noexcept
+void LspManager::configure(bool aEnabled, std::vector<LspServerSpec> servers) noexcept
 {
     enabled = aEnabled;
-    configuredServers.clear();
+    userServers.clear();
     for (auto &s : servers)
-        if (!s.first.empty() && !s.second.empty())
-            configuredServers[s.first] = s.second;
-    // A language that previously had no server may now be configured; clear the
-    // negative cache so it gets another chance on the next didOpen.
-    deadLanguages.clear();
+        if (!s.key.empty() && !s.command.empty() && !s.languages.empty())
+            userServers.push_back(std::move(s));
+    // A language/server that previously had no process may now be configured;
+    // clear the negative cache so it gets another chance on the next didOpen.
+    deadServers.clear();
 }
 
-LspManager::ServerConfig LspManager::serverFor(const std::string &languageId) noexcept
+void LspManager::setProjectServers(std::vector<LspServerSpec> servers) noexcept
 {
-    auto fromCommandLine = [] (const std::string &cmdline) -> ServerConfig {
+    // Stop the previous project's detected servers so they don't get reused with
+    // a stale root when a new project opens. Detach each from any still-open
+    // document first (avoid dangling pointers), and redraw so its squiggles go.
+    for (auto &s : projectServers)
+    {
+        auto it = clients.find(s.key);
+        deadServers.erase(s.key);
+        if (it == clients.end())
+            continue;
+        Client *c = it->second.get();
+        for (auto &kv : docs)
+        {
+            auto &cs = kv.second.clients;
+            bool had = std::find(cs.begin(), cs.end(), c) != cs.end();
+            cs.erase(std::remove(cs.begin(), cs.end(), c), cs.end());
+            kv.second.diagsBySource.erase(c);
+            if (had)
+                renderAnnotations(*kv.first);
+        }
+        c->stop();
+        clients.erase(it);
+    }
+
+    projectServers.clear();
+    for (auto &s : servers)
+        if (!s.key.empty() && !s.command.empty() && !s.languages.empty())
+            projectServers.push_back(std::move(s));
+    for (auto &s : projectServers)
+        deadServers.erase(s.key);
+}
+
+std::vector<LspManager::ServerConfig>
+LspManager::serversForLanguage(const std::string &languageId) noexcept
+{
+    auto fromCommandLine = [] (const std::string &key, const std::string &cmdline,
+                               const std::vector<std::string> &langs) -> ServerConfig {
         ServerConfig cfg;
+        cfg.key = key;
+        cfg.languages = langs;
         auto parts = splitArgs(cmdline);
         if (!parts.empty())
         {
@@ -316,18 +353,30 @@ LspManager::ServerConfig LspManager::serverFor(const std::string &languageId) no
         return cfg;
     };
 
-    // An environment override (TURBO_LSP_SERVER_<LANG>) takes precedence; this
-    // makes the transport testable against a mock server independent of config.
+    std::vector<ServerConfig> out;
+
+    // An environment override (TURBO_LSP_SERVER_<LANG>) forces a single server
+    // for the language -- used to test the transport against a mock. It replaces
+    // both the default and any configured servers.
     std::string envKey = "TURBO_LSP_SERVER_" + languageId;
     for (auto &c : envKey) c = (char) std::toupper((unsigned char) c);
     if (const char *ov = getenv(envKey.c_str()); ov && ov[0])
-        return fromCommandLine(ov);
+    {
+        ServerConfig cfg = fromCommandLine(languageId, ov, {languageId});
+        if (cfg.valid())
+            out.push_back(std::move(cfg));
+        return out;
+    }
 
-    // User-configured command (from ~/.turborc / the settings dialog).
-    if (auto it = configuredServers.find(languageId); it != configuredServers.end())
-        return fromCommandLine(it->second);
+    // A user server keyed exactly by this language (an `lsp.server.<lang>=`
+    // entry) overrides the built-in default for it.
+    bool defaultOverridden = false;
+    for (auto &u : userServers)
+        if (u.key == languageId)
+            defaultOverridden = true;
 
-    // Built-in defaults.
+    // Built-in default for this language, unless overridden. Each serves only
+    // its own language.
     static const struct { const char *lang, *cmd, *args; } defaults[] = {
         {"cpp",        "clangd",                     ""},
         {"python",     "pyright-langserver",         "--stdio"},
@@ -337,67 +386,98 @@ LspManager::ServerConfig LspManager::serverFor(const std::string &languageId) no
         {"php",        "intelephense",               "--stdio"},
         {"elixir",     "expert",                     ""},
     };
-    for (auto &d : defaults)
-        if (languageId == d.lang)
+    if (!defaultOverridden)
+        for (auto &d : defaults)
+            if (languageId == d.lang)
+            {
+                ServerConfig cfg;
+                cfg.key = d.lang;
+                cfg.command = d.cmd;
+                cfg.args = splitArgs(d.args);
+                cfg.languages = {d.lang};
+                out.push_back(std::move(cfg));
+                break;
+            }
+
+    // Every user server that serves this language (per-language overrides and
+    // extras alike).
+    for (auto &u : userServers)
+        if (u.serves(languageId))
         {
-            ServerConfig cfg;
-            cfg.command = d.cmd;
-            cfg.args = splitArgs(d.args);
-            return cfg;
+            ServerConfig cfg = fromCommandLine(u.key, u.command, u.languages);
+            if (cfg.valid())
+                out.push_back(std::move(cfg));
         }
-    return {};
+
+    // Project-scoped auto-detected servers (additive; never override a default).
+    for (auto &u : projectServers)
+        if (u.serves(languageId))
+        {
+            ServerConfig cfg = fromCommandLine(u.key, u.command, u.languages);
+            if (cfg.valid())
+                out.push_back(std::move(cfg));
+        }
+
+    return out;
 }
 
-Json LspManager::initOptionsFor(const std::string &languageId) noexcept
+Json LspManager::initOptionsFor(const ServerConfig &cfg) noexcept
 {
     // intelephense will not index or publish diagnostics unless it is given a
-    // writable 'storagePath'. Point it at a per-user cache directory (created if
-    // needed). Other servers receive no special options.
-    if (languageId == "php")
+    // writable 'storagePath'. Detect it by command name (not language), since a
+    // language may now be served by several servers. Others get no options.
+    std::string base = cfg.command;
+    auto slash = base.find_last_of("/\\");
+    if (slash != std::string::npos)
+        base = base.substr(slash + 1);
+    if (base.find("intelephense") != std::string::npos)
     {
         const char *home = getenv("HOME");
         if (!home || !home[0])
             home = getenv("USERPROFILE");
-        std::string base = (home && home[0]) ? std::string(home) + "/.cache/turbo-lsp"
+        std::string root = (home && home[0]) ? std::string(home) + "/.cache/turbo-lsp"
                                               : std::string("/tmp/turbo-lsp");
-        std::string dir = base + "/intelephense";
+        std::string dir = root + "/intelephense";
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);
-        return Json{
-            {"storagePath", dir},
-            {"globalStoragePath", dir},
-        };
+        return Json{{"storagePath", dir}, {"globalStoragePath", dir}};
     }
     return Json(); // null -> omitted
 }
 
-Client *LspManager::clientFor(const std::string &languageId) noexcept
+Client *LspManager::clientForServer(const ServerConfig &cfg) noexcept
 {
-    if (auto it = clients.find(languageId); it != clients.end())
+    if (auto it = clients.find(cfg.key); it != clients.end())
         return it->second.get();
-    if (deadLanguages.count(languageId))
+    if (deadServers.count(cfg.key))
         return nullptr;
-
-    ServerConfig cfg = serverFor(languageId);
     if (!cfg.valid() || !existsOnPath(cfg.command))
     {
-        deadLanguages.insert(languageId);
-        logLine("no server available for language: " + languageId);
+        deadServers.insert(cfg.key);
+        logLine("no server available: " + cfg.key + " (" + cfg.command + ")");
         return nullptr;
     }
-
-    auto client = std::make_unique<Client>(languageId, cfg.command, cfg.args);
-    client->initializationOptions = initOptionsFor(languageId);
+    auto client = std::make_unique<Client>(cfg.key, cfg.command, cfg.args);
+    client->initializationOptions = initOptionsFor(cfg);
     if (!client->start(rootUri))
     {
-        deadLanguages.insert(languageId);
-        logLine("failed to start server for language: " + languageId);
+        deadServers.insert(cfg.key);
+        logLine("failed to start server: " + cfg.key);
         return nullptr;
     }
-    logLine("started server '" + cfg.command + "' for language: " + languageId);
+    logLine("started server '" + cfg.command + "' [" + cfg.key + "]");
     Client *raw = client.get();
-    clients.emplace(languageId, std::move(client));
+    clients.emplace(cfg.key, std::move(client));
     return raw;
+}
+
+std::vector<Client *> LspManager::clientsFor(const std::string &languageId) noexcept
+{
+    std::vector<Client *> out;
+    for (auto &cfg : serversForLanguage(languageId))
+        if (Client *c = clientForServer(cfg))
+            out.push_back(c);
+    return out;
 }
 
 void LspManager::didOpen(EditorWindow &w) noexcept
@@ -412,8 +492,8 @@ void LspManager::didOpen(EditorWindow &w) noexcept
     std::string langId = languageIdFor(w.getEditor().language);
     if (langId.empty())
         return;
-    Client *client = clientFor(langId);
-    if (!client)
+    std::vector<Client *> langClients = clientsFor(langId);
+    if (langClients.empty())
         return;
 
     // Set up diagnostic annotation styles for this editor (idempotent).
@@ -426,7 +506,7 @@ void LspManager::didOpen(EditorWindow &w) noexcept
     doc.uri = uriFromPath(path);
     doc.languageId = langId;
     doc.version = 1;
-    doc.client = client;
+    doc.clients = langClients;
 
     Json params = {
         {"textDocument", {
@@ -436,8 +516,10 @@ void LspManager::didOpen(EditorWindow &w) noexcept
             {"text", readEditorText(w)},
         }},
     };
-    client->notify("textDocument/didOpen", params);
-    logLine("didOpen " + doc.uri);
+    for (Client *c : langClients)
+        c->notify("textDocument/didOpen", params);
+    logLine("didOpen " + doc.uri + " (" +
+            std::to_string(langClients.size()) + " server(s))");
     docs.emplace(&w, std::move(doc));
 }
 
@@ -459,7 +541,8 @@ void LspManager::flushChange(EditorWindow &w) noexcept
         {"textDocument", {{"uri", doc.uri}, {"version", doc.version}}},
         {"contentChanges", Json::array({ Json{{"text", readEditorText(w)}} })},
     };
-    doc.client->notify("textDocument/didChange", params);
+    for (Client *c : doc.clients)
+        c->notify("textDocument/didChange", params);
     logLine("didChange v" + std::to_string(doc.version) + " " + doc.uri);
 }
 
@@ -476,7 +559,8 @@ void LspManager::didSave(EditorWindow &w) noexcept
         {"textDocument", {{"uri", doc.uri}}},
         {"text", readEditorText(w)},
     };
-    doc.client->notify("textDocument/didSave", params);
+    for (Client *c : doc.clients)
+        c->notify("textDocument/didSave", params);
     logLine("didSave " + doc.uri);
 }
 
@@ -488,7 +572,8 @@ void LspManager::didClose(EditorWindow &w) noexcept
     dirty.erase(&w);
     Document &doc = it->second;
     Json params = {{"textDocument", {{"uri", doc.uri}}}};
-    doc.client->notify("textDocument/didClose", params);
+    for (Client *c : doc.clients)
+        c->notify("textDocument/didClose", params);
     logLine("didClose " + doc.uri);
     docs.erase(it);
 }
@@ -501,14 +586,17 @@ EditorWindow *LspManager::findByUri(const std::string &uri) noexcept
     return nullptr;
 }
 
-void LspManager::applyDiagnostics(EditorWindow &w, const Json &diagnostics,
+void LspManager::applyDiagnostics(EditorWindow &w, Client *source, const Json &diagnostics,
                                   turbo::lsp::PositionEncoding enc) noexcept
 {
     auto &ed = w.getEditor();
     setupAnnotations(ed); // (re)assert visibility/colours in case theming changed
 
     auto &doc = docs[&w];
-    doc.diagnostics.clear();
+    // Replace only THIS server's diagnostics, so a second server serving the
+    // same file doesn't wipe the first's on every publish.
+    std::vector<Diagnostic> &bucket = doc.diagsBySource[source];
+    bucket.clear();
 
     for (auto &d : diagnostics)
     {
@@ -522,14 +610,14 @@ void LspManager::applyDiagnostics(EditorWindow &w, const Json &diagnostics,
         if (end < start)
             std::swap(start, end);
         int severity = d.value("severity", 1);
-        doc.diagnostics.push_back({start, end, severity, d.value("message", std::string())});
+        bucket.push_back({start, end, severity, d.value("message", std::string())});
     }
 
     renderAnnotations(w);
 
     ed.redraw();
-    logLine("applied " + std::to_string(doc.diagnostics.size()) +
-            " diagnostic(s) to " + doc.uri);
+    logLine("applied " + std::to_string(bucket.size()) + " diagnostic(s) from [" +
+            (source ? source->languageId() : std::string("?")) + "] to " + doc.uri);
 }
 
 void LspManager::renderAnnotations(EditorWindow &w) noexcept
@@ -541,14 +629,15 @@ void LspManager::renderAnnotations(EditorWindow &w) noexcept
 
     ed.callScintilla(SCI_ANNOTATIONCLEARALL, 0U, 0U);
 
-    // Group diagnostics by the (display) line their span starts on, preserving
-    // document order so earlier diagnostics list first.
+    // Group diagnostics from every source server by the (display) line their
+    // span starts on.
     std::map<long, std::vector<const Diagnostic *>> byLine;
-    for (auto &d : doc->diagnostics)
-    {
-        long line = ed.callScintilla(SCI_LINEFROMPOSITION, d.start, 0U);
-        byLine[line].push_back(&d);
-    }
+    for (auto &src : doc->diagsBySource)
+        for (auto &d : src.second)
+        {
+            long line = ed.callScintilla(SCI_LINEFROMPOSITION, d.start, 0U);
+            byLine[line].push_back(&d);
+        }
 
     for (auto &entry : byLine)
     {
@@ -594,10 +683,11 @@ void LspManager::renderAnnotations(EditorWindow &w) noexcept
     }
 }
 
-void LspManager::onServerMessage(const std::string &languageId, const Json &msg) noexcept
+void LspManager::onServerMessage(Client *source, const Json &msg) noexcept
 {
     std::string method = msg.value("method", std::string());
-    logLine("server[" + languageId + "] " + method);
+    logLine(std::string("server[") + (source ? source->languageId() : "?") +
+            "] " + method);
 
     if (method == "textDocument/publishDiagnostics" && msg.contains("params"))
     {
@@ -605,11 +695,9 @@ void LspManager::onServerMessage(const std::string &languageId, const Json &msg)
         std::string uri = params.value("uri", std::string());
         EditorWindow *w = findByUri(uri);
         if (w)
-        {
-            auto it = docs.find(w);
-            auto enc = it->second.client->positionEncoding();
-            applyDiagnostics(*w, params.value("diagnostics", Json::array()), enc);
-        }
+            applyDiagnostics(*w, source, params.value("diagnostics", Json::array()),
+                             source ? source->positionEncoding()
+                                    : turbo::lsp::PositionEncoding::UTF16);
     }
 }
 
@@ -619,12 +707,12 @@ LspManager::Document *LspManager::docFor(EditorWindow &w) noexcept
     return it == docs.end() ? nullptr : &it->second;
 }
 
-Json LspManager::positionParams(EditorWindow &w, long pos) noexcept
+Json LspManager::positionParams(EditorWindow &w, long pos, Client *client) noexcept
 {
     Document *doc = docFor(w);
     auto &ed = w.getEditor();
     int line = 0, character = 0;
-    bytePosToLsp(ed, pos, doc->client->positionEncoding(), line, character);
+    bytePosToLsp(ed, pos, client->positionEncoding(), line, character);
     return Json{
         {"textDocument", {{"uri", doc->uri}}},
         {"position", {{"line", line}, {"character", character}}},
@@ -634,59 +722,83 @@ Json LspManager::positionParams(EditorWindow &w, long pos) noexcept
 void LspManager::sendCompletion(EditorWindow &w) noexcept
 {
     Document *doc = docFor(w);
-    if (!doc)
+    if (!doc || doc->clients.empty())
         return;
-    // Flush any pending change so the server completes against current text.
+    // Flush any pending change so the servers complete against current text.
     if (dirty.erase(&w))
         flushChange(w);
     auto &ed = w.getEditor();
     long pos = ed.callScintilla(SCI_GETCURRENTPOS, 0U, 0U);
-    Json params = positionParams(w, pos);
     EditorWindow *wp = &w;
-    doc->client->request("textDocument/completion", params,
-        [this, wp](const Json &result, const Json *error) {
-            if (error || result.is_null())
-                return;
-            // Result is either CompletionItem[] or {items: CompletionItem[]}.
-            const Json *items = nullptr;
-            if (result.is_array())
-                items = &result;
-            else if (result.contains("items") && result["items"].is_array())
-                items = &result["items"];
-            if (!items || items->empty())
-                return;
-            Document *doc = docFor(*wp);
-            if (!doc) // editor closed while the request was in flight
-                return;
-            std::vector<std::string> labels;
-            labels.reserve(items->size());
-            for (auto &it : *items)
-            {
-                std::string label = it.value("label", std::string());
-                // Some servers pad labels with a leading space; trim it.
-                auto a = label.find_first_not_of(' ');
-                if (a != std::string::npos)
-                    label = label.substr(a);
-                if (!label.empty())
-                    labels.push_back(label);
-            }
-            if (labels.empty())
-                return;
-            std::sort(labels.begin(), labels.end());
-            labels.erase(std::unique(labels.begin(), labels.end()), labels.end());
-            doc->pendingCompletions = std::move(labels);
-            // Display happens on the main event loop, NOT here: this callback
-            // runs inside idle()'s pump(), and opening a modal view from there
-            // is unsafe. Post a command the app turns into showCompletion().
-            if (TProgram::application)
-            {
-                TEvent ev {};
-                ev.what = evCommand;
-                ev.message.command = cmShowCompletion;
-                ev.message.infoPtr = wp;
-                TProgram::application->putEvent(ev);
-            }
-        });
+
+    // Only ask servers that finished initializing: a server still starting -- or
+    // one that refused to initialize (e.g. a project-specific server opened
+    // outside its project) -- would never answer and stall the merge below.
+    std::vector<Client *> ready;
+    for (Client *c : doc->clients)
+        if (c->ready())
+            ready.push_back(c);
+    if (ready.empty())
+        return;
+
+    // Fan out to every ready server and merge the results. A shared accumulator
+    // counts outstanding requests; the popup is posted once the last response
+    // arrives.
+    struct Gather { int pending; std::vector<std::string> labels; };
+    auto gather = std::make_shared<Gather>();
+    gather->pending = (int) ready.size();
+
+    auto extract = [] (const Json &result, std::vector<std::string> &labels) {
+        // Result is CompletionItem[] or {items: CompletionItem[]}.
+        const Json *items = nullptr;
+        if (result.is_array())
+            items = &result;
+        else if (result.is_object() && result.contains("items") &&
+                 result["items"].is_array())
+            items = &result["items"];
+        if (!items)
+            return;
+        for (auto &it : *items)
+        {
+            std::string label = it.value("label", std::string());
+            auto a = label.find_first_not_of(' '); // some servers pad labels
+            if (a != std::string::npos)
+                label = label.substr(a);
+            if (!label.empty())
+                labels.push_back(std::move(label));
+        }
+    };
+
+    for (Client *c : ready)
+    {
+        Json params = positionParams(w, pos, c);
+        c->request("textDocument/completion", params,
+            [this, wp, gather, extract](const Json &result, const Json *error) {
+                if (!error && !result.is_null())
+                    extract(result, gather->labels);
+                if (--gather->pending > 0)
+                    return; // wait for the remaining servers
+                // Last response: dedup and display, if the editor survives.
+                Document *doc = docFor(*wp);
+                if (!doc || gather->labels.empty())
+                    return;
+                std::vector<std::string> &labels = gather->labels;
+                std::sort(labels.begin(), labels.end());
+                labels.erase(std::unique(labels.begin(), labels.end()), labels.end());
+                doc->pendingCompletions = std::move(labels);
+                // Display happens on the main event loop, NOT here: this callback
+                // runs inside idle()'s pump(), and opening a modal view from
+                // there is unsafe. Post a command -> showCompletion().
+                if (TProgram::application)
+                {
+                    TEvent ev {};
+                    ev.what = evCommand;
+                    ev.message.command = cmShowCompletion;
+                    ev.message.infoPtr = wp;
+                    TProgram::application->putEvent(ev);
+                }
+            });
+    }
 }
 
 void LspManager::showCompletion(EditorWindow &w) noexcept
@@ -772,39 +884,49 @@ void LspManager::requestCompletion(EditorWindow &w) noexcept
 void LspManager::hover(EditorWindow &w, long pos) noexcept
 {
     Document *doc = docFor(w);
-    if (!doc)
+    if (!doc || doc->clients.empty())
         return;
-    Json params = positionParams(w, pos);
     EditorWindow *wp = &w;
-    doc->client->request("textDocument/hover", params,
-        [this, wp, pos](const Json &result, const Json *error) {
-            if (error || result.is_null() || !result.contains("contents"))
-                return;
-            // contents may be a string, a {kind,value} MarkupContent, or an
-            // array of MarkedString.
-            const Json &c = result["contents"];
-            std::string text;
-            if (c.is_string())
-                text = c.get<std::string>();
-            else if (c.is_object())
-                text = c.value("value", std::string());
-            else if (c.is_array() && !c.empty())
-            {
-                const Json &first = c[0];
-                text = first.is_string() ? first.get<std::string>()
-                                         : first.value("value", std::string());
-            }
-            if (text.empty())
-                return;
-            // Single line for the call tip; trim to a sane length.
-            auto nl = text.find('\n');
-            if (nl != std::string::npos)
-                text = text.substr(0, nl);
-            if (text.size() > 120)
-                text = text.substr(0, 120);
-            auto &ed = wp->getEditor();
-            ed.callScintilla(SCI_CALLTIPSHOW, pos, (sptr_t) text.c_str());
-        });
+    // Ask every ready server; the first with non-empty hover wins (shared flag).
+    auto shown = std::make_shared<bool>(false);
+    for (Client *c : doc->clients)
+    {
+        if (!c->ready())
+            continue;
+        Json params = positionParams(w, pos, c);
+        c->request("textDocument/hover", params,
+            [this, wp, pos, shown](const Json &result, const Json *error) {
+                if (*shown || error || result.is_null() || !result.contains("contents"))
+                    return;
+                // contents may be a string, a {kind,value} MarkupContent, or an
+                // array of MarkedString.
+                const Json &c = result["contents"];
+                std::string text;
+                if (c.is_string())
+                    text = c.get<std::string>();
+                else if (c.is_object())
+                    text = c.value("value", std::string());
+                else if (c.is_array() && !c.empty())
+                {
+                    const Json &first = c[0];
+                    text = first.is_string() ? first.get<std::string>()
+                                             : first.value("value", std::string());
+                }
+                if (text.empty())
+                    return;
+                if (!docFor(*wp)) // editor closed while the request was in flight
+                    return;
+                // Single line for the call tip; trim to a sane length.
+                auto nl = text.find('\n');
+                if (nl != std::string::npos)
+                    text = text.substr(0, nl);
+                if (text.size() > 120)
+                    text = text.substr(0, 120);
+                *shown = true;
+                wp->getEditor().callScintilla(SCI_CALLTIPSHOW, pos,
+                                              (sptr_t) text.c_str());
+            });
+    }
 }
 
 void LspManager::hoverEnd(EditorWindow &w) noexcept
@@ -827,10 +949,9 @@ void LspManager::pump() noexcept
     // Deliver inbound server messages/responses on the main thread.
     for (auto &kv : clients)
     {
-        const std::string &lang = kv.first;
         Client *client = kv.second.get();
-        client->pump([this, &lang](const Json &msg) {
-            onServerMessage(lang, msg);
+        client->pump([this, client](const Json &msg) {
+            onServerMessage(client, msg);
         });
     }
 }

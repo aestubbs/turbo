@@ -46,6 +46,36 @@ static void chomp(char *s) noexcept
         s[--n] = '\0';
 }
 
+// Splits a comma/space-separated list (e.g. "php, blade") into tokens.
+static std::vector<std::string> splitList(const char *s) noexcept
+{
+    std::vector<std::string> out;
+    std::string cur;
+    for (; *s; ++s)
+    {
+        char c = *s;
+        if (c == ',' || c == ' ' || c == '\t')
+        {
+            if (!cur.empty()) { out.push_back(cur); cur.clear(); }
+        }
+        else
+            cur += c;
+    }
+    if (!cur.empty())
+        out.push_back(cur);
+    return out;
+}
+
+// Finds or appends the extra server named 'name'.
+static LspExtraServer &extraServer(AppSettings &s, const std::string &name) noexcept
+{
+    for (auto &e : s.lspExtraServers)
+        if (e.name == name)
+            return e;
+    s.lspExtraServers.push_back({name, {}, {}});
+    return s.lspExtraServers.back();
+}
+
 void loadSettings(AppSettings &s) noexcept
 {
     auto path = settingsPath();
@@ -106,6 +136,32 @@ void loadSettings(AppSettings &s) noexcept
                     s.theme[rest] = val;
             }
         }
+        else if (strncmp(line, "lsp.extra.", 10) == 0)
+        {
+            // lsp.extra.<name>.command=<cmdline>  |  lsp.extra.<name>.langs=<csv>
+            char *rest = line + 10;
+            char *eq = strchr(rest, '=');
+            if (eq)
+            {
+                *eq = '\0';
+                char *val = eq + 1;
+                chomp(val);
+                char *dot = strrchr(rest, '.'); // split "<name>.<field>"
+                if (dot && dot != rest)
+                {
+                    *dot = '\0';
+                    std::string name = rest, field = dot + 1;
+                    if (!name.empty())
+                    {
+                        LspExtraServer &srv = extraServer(s, name);
+                        if (field == "command")
+                            srv.command = val;
+                        else if (field == "langs")
+                            srv.languages = splitList(val);
+                    }
+                }
+            }
+        }
         else if (strncmp(line, serverPrefix, sizeof serverPrefix - 1) == 0)
         {
             // lsp.server.<lang>=<command>
@@ -144,6 +200,18 @@ void saveSettings(const AppSettings &s) noexcept
     for (auto &srv : s.lspServers)
         if (!srv.language.empty() && !srv.command.empty())
             fprintf(f, "lsp.server.%s=%s\n", srv.language.c_str(), srv.command.c_str());
+    for (auto &e : s.lspExtraServers)
+        if (!e.name.empty() && !e.command.empty())
+        {
+            fprintf(f, "lsp.extra.%s.command=%s\n", e.name.c_str(), e.command.c_str());
+            if (!e.languages.empty())
+            {
+                std::string csv;
+                for (size_t i = 0; i < e.languages.size(); ++i)
+                    csv += (i ? "," : "") + e.languages[i];
+                fprintf(f, "lsp.extra.%s.langs=%s\n", e.name.c_str(), csv.c_str());
+            }
+        }
     for (auto &kv : s.theme)
         if (!kv.first.empty())
             fprintf(f, "theme.%s=%s\n", kv.first.c_str(), kv.second.c_str());
